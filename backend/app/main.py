@@ -133,3 +133,41 @@ def create_schedule(schedule: ScheduleInput):
 @app.get("/schedule")
 def get_schedules():
     return get_all_schedules()
+@app.post("/emails/simulate")
+def simulate_incoming_email():
+    test_emails = [
+        {
+            "sender": "client@business.com",
+            "subject": "Urgent: Contract Review",
+            "body": "Hi, I need to urgently discuss the contract terms. Can we meet today at 5pm? This is time sensitive."
+        },
+        {
+            "sender": "teammate@company.com", 
+            "subject": "Quick Sync",
+            "body": "Hey, can we have a quick sync tomorrow at 11am to discuss the project progress?"
+        },
+        {
+            "sender": "hr@company.com",
+            "subject": "Performance Review",
+            "body": "Hi, your performance review is scheduled for Friday at 2pm. Please confirm your availability."
+        }
+    ]
+    import random
+    email = random.choice(test_emails)
+    analysis = analyze_email(email["sender"], email["subject"], email["body"])
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("""
+        INSERT INTO emails (sender, subject, body, summary, intent, priority)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (
+        email["sender"],
+        email["subject"],
+        email["body"],
+        analysis.get("summary"),
+        analysis.get("intent"),
+        analysis.get("priority")
+    ))
+    db.commit()
+    db.close()
+    return {"message": "Simulated email received!", "email": email}

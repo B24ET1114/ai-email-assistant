@@ -79,13 +79,11 @@ export default function App() {
   const handleSchedule = async () => {
     if (!selected) return
     const timeSlot = selected.body.match(/\d{1,2}(am|pm|:\d{2})/i)?.[0] || 'tomorrow 3pm'
-    
     const conflictRes = await axios.post(
       `${API}/schedule/check?time_str=${encodeURIComponent(timeSlot)}`
     )
-    
     if (conflictRes.data.conflict) {
-      showNotification(`⚠️ Conflict! You already have a meeting at that time. Auto-declining...`)
+      showNotification('⚠️ Conflict! Already have a meeting then. Auto-declining...')
       await axios.post(`${API}/emails/reply`, {
         email_id: selected.id,
         user_input: 'decline politely due to scheduling conflict, ask them to suggest another time'
@@ -103,6 +101,12 @@ export default function App() {
     }
   }
 
+  const handleSimulate = async () => {
+    await axios.post(`${API}/emails/simulate`)
+    fetchEmails()
+    showNotification('New email received!')
+  }
+
   const priorityColor = (p: string) => {
     if (p === 'high') return 'bg-red-100 text-red-800'
     if (p === 'medium') return 'bg-yellow-100 text-yellow-800'
@@ -118,7 +122,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Notification */}
       {notification && (
         <div className="fixed top-4 right-4 bg-indigo-600 text-white px-6 py-3 rounded-xl shadow-lg z-50 text-sm font-medium">
           {notification}
@@ -144,11 +147,16 @@ export default function App() {
           >
             Schedule ({schedules.length})
           </button>
+          <button
+            onClick={handleSimulate}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-green-500 text-white hover:bg-green-400 transition-colors"
+          >
+            + Simulate Email
+          </button>
         </div>
       </div>
 
       {view === 'schedule' ? (
-        /* Schedule View */
         <div className="flex-1 p-6">
           <h2 className="text-lg font-bold text-gray-900 mb-4">Upcoming Meetings</h2>
           {schedules.length === 0 ? (
@@ -180,7 +188,6 @@ export default function App() {
           )}
         </div>
       ) : (
-        /* Inbox View */
         <div className="flex flex-1 overflow-hidden">
           {/* Sidebar */}
           <div className="w-1/3 bg-white border-r border-gray-200 overflow-y-auto">
@@ -225,7 +232,6 @@ export default function App() {
               </div>
             ) : (
               <div className="p-6 space-y-4">
-                {/* Email Header */}
                 <div className="bg-white rounded-xl shadow-sm p-5">
                   <div className="flex justify-between items-start mb-3">
                     <div>
@@ -251,7 +257,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Action Buttons */}
                 {selected.intent === 'meeting_request' && (
                   <div className="bg-white rounded-xl shadow-sm p-5">
                     <h3 className="font-bold text-gray-900 mb-3">Quick Actions</h3>
@@ -264,7 +269,6 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Reply Section */}
                 <div className="bg-white rounded-xl shadow-sm p-5">
                   <h3 className="font-bold text-gray-900 mb-3">Your Response</h3>
                   <div className="flex gap-2 mb-3 flex-wrap">
