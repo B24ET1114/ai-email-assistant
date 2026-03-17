@@ -63,9 +63,34 @@ def get_emails():
     emails = [dict(row) for row in cursor.fetchall()]
     db.close()
     return emails
+@app.get("/emails/priority")
+def get_priority_emails():
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("""
+        SELECT * FROM emails 
+        ORDER BY 
+            CASE priority 
+                WHEN 'high' THEN 1 
+                WHEN 'medium' THEN 2 
+                WHEN 'low' THEN 3 
+            END,
+            received_at DESC
+    """)
+    emails = [dict(row) for row in cursor.fetchall()]
+    db.close()
+    return emails
 
 @app.get("/emails/{email_id}")
 def get_email(email_id: int):
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT * FROM emails WHERE id = ?", (email_id,))
+    email = cursor.fetchone()
+    db.close()
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+    return dict(email)
     db = get_db()
     cursor = db.cursor()
     cursor.execute("SELECT * FROM emails WHERE id = ?", (email_id,))
@@ -197,7 +222,6 @@ def get_thread_summary(sender: str):
         "email_count": len(emails),
         "sender": sender
     }
-@app.get("/emails/priority")
 def get_priority_emails():
     db = get_db()
     cursor = db.cursor()
@@ -249,3 +273,27 @@ def get_working_hours():
         "timezone": "Asia/Kolkata",
         "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
     }
+class Settings(BaseModel):
+    name: str
+    email: str
+    working_hours_start: str
+    working_hours_end: str
+    timezone: str
+
+app_settings = {
+    "name": "Pranav",
+    "email": "pranavkelapure2024.etc@mmcoe.edu.in",
+    "working_hours_start": "09:00",
+    "working_hours_end": "18:00",
+    "timezone": "Asia/Kolkata"
+}
+
+@app.get("/settings")
+def get_settings():
+    return app_settings
+
+@app.post("/settings")
+def update_settings(settings: Settings):
+    global app_settings
+    app_settings = settings.dict()
+    return {"message": "Settings updated!", "settings": app_settings}
