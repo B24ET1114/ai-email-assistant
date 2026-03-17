@@ -44,8 +44,8 @@ export default function App() {
     return () => clearInterval(interval)
   }, [])
 
-  const fetchEmails = async () => {
-    const res = await axios.get(`${API}/emails`)
+ const fetchEmails = async () => {
+    const res = await axios.get(`${API}/emails/priority`)
     setEmails(res.data)
   }
 
