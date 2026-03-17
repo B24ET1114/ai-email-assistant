@@ -197,3 +197,29 @@ def get_thread_summary(sender: str):
         "email_count": len(emails),
         "sender": sender
     }
+@app.get("/emails/priority")
+def get_priority_emails():
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("""
+        SELECT * FROM emails 
+        ORDER BY 
+            CASE priority 
+                WHEN 'high' THEN 1 
+                WHEN 'medium' THEN 2 
+                WHEN 'low' THEN 3 
+            END,
+            received_at DESC
+    """)
+    emails = [dict(row) for row in cursor.fetchall()]
+    db.close()
+    return emails
+
+@app.get("/settings/working-hours")
+def get_working_hours():
+    return {
+        "start": "09:00",
+        "end": "18:00",
+        "timezone": "Asia/Kolkata",
+        "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+    }
