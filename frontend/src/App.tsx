@@ -56,7 +56,7 @@ export default function App() {
 
   const showNotification = (msg: string) => {
     setNotification(msg)
-    setTimeout(() => setNotification(''), 4000)
+    setTimeout(() => setNotification(''), 6000)
   }
 
   const handleReply = async () => {
@@ -107,6 +107,16 @@ export default function App() {
     showNotification('New email received!')
   }
 
+  const handleThreadSummary = async () => {
+    if (!selected) return
+    try {
+      const res = await axios.get(`${API}/emails/thread/${encodeURIComponent(selected.sender)}`)
+      showNotification(`Thread (${res.data.email_count} emails): ${res.data.summary}`)
+    } catch {
+      showNotification('No thread found for this sender')
+    }
+  }
+
   const priorityColor = (p: string) => {
     if (p === 'high') return 'bg-red-100 text-red-800'
     if (p === 'medium') return 'bg-yellow-100 text-yellow-800'
@@ -123,7 +133,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {notification && (
-        <div className="fixed top-4 right-4 bg-indigo-600 text-white px-6 py-3 rounded-xl shadow-lg z-50 text-sm font-medium">
+        <div className="fixed top-4 right-4 bg-indigo-600 text-white px-6 py-3 rounded-xl shadow-lg z-50 text-sm font-medium max-w-md">
           {notification}
         </div>
       )}
@@ -232,6 +242,7 @@ export default function App() {
               </div>
             ) : (
               <div className="p-6 space-y-4">
+                {/* Email Header */}
                 <div className="bg-white rounded-xl shadow-sm p-5">
                   <div className="flex justify-between items-start mb-3">
                     <div>
@@ -247,16 +258,28 @@ export default function App() {
                       </span>
                     </div>
                   </div>
+
+                  {/* AI Summary with Thread button */}
                   <div className="bg-indigo-50 rounded-lg p-3 mb-3">
-                    <p className="text-xs font-semibold text-indigo-600 mb-1">AI SUMMARY</p>
+                    <div className="flex justify-between items-center mb-1">
+                      <p className="text-xs font-semibold text-indigo-600">AI SUMMARY</p>
+                      <button
+                        onClick={handleThreadSummary}
+                        className="text-xs text-indigo-500 hover:text-indigo-700 underline"
+                      >
+                        View full thread
+                      </button>
+                    </div>
                     <p className="text-gray-700 text-sm">{selected.summary}</p>
                   </div>
+
                   <div>
                     <p className="text-xs font-semibold text-gray-500 mb-1">ORIGINAL EMAIL</p>
                     <p className="text-gray-700 text-sm whitespace-pre-wrap">{selected.body}</p>
                   </div>
                 </div>
 
+                {/* Schedule Button for meeting requests */}
                 {selected.intent === 'meeting_request' && (
                   <div className="bg-white rounded-xl shadow-sm p-5">
                     <h3 className="font-bold text-gray-900 mb-3">Quick Actions</h3>
@@ -269,6 +292,7 @@ export default function App() {
                   </div>
                 )}
 
+                {/* Reply Section */}
                 <div className="bg-white rounded-xl shadow-sm p-5">
                   <h3 className="font-bold text-gray-900 mb-3">Your Response</h3>
                   <div className="flex gap-2 mb-3 flex-wrap">

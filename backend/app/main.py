@@ -171,3 +171,29 @@ def simulate_incoming_email():
     db.commit()
     db.close()
     return {"message": "Simulated email received!", "email": email}
+from app.ai_agent import analyze_email, draft_reply, handle_conflict, summarize_thread
+
+@app.get("/emails/thread/{sender}")
+def get_thread_summary(sender: str):
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("""
+        SELECT * FROM emails 
+        WHERE sender = ? 
+        ORDER BY received_at ASC
+    """, (sender,))
+    emails = [dict(row) for row in cursor.fetchall()]
+    db.close()
+    
+    if not emails:
+        raise HTTPException(status_code=404, detail="No emails found from this sender")
+    
+    if len(emails) == 1:
+        return {"summary": emails[0]["summary"], "email_count": 1}
+    
+    summary = summarize_thread(emails)
+    return {
+        "summary": summary,
+        "email_count": len(emails),
+        "sender": sender
+    }

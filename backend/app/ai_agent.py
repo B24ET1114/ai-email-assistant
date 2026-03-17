@@ -79,3 +79,23 @@ def handle_conflict(sender: str, requested_time: str) -> str:
         temperature=0.7
     )
     return response.choices[0].message.content.strip()
+def summarize_thread(emails: list) -> str:
+    thread_text = ""
+    for i, email in enumerate(emails):
+        thread_text += f"\nEmail {i+1} from {email['sender']}:\n{email['body']}\n"
+    
+    prompt = f"""
+    Summarize this email thread in 3-4 sentences. 
+    Focus on: what was discussed, what was decided, what is the current status.
+    
+    Thread:
+    {thread_text}
+    
+    Return only the summary, nothing else.
+    """
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.3
+    )
+    return response.choices[0].message.content.strip()
