@@ -108,3 +108,28 @@ def update_status(email_id: int, status: str):
     db.commit()
     db.close()
     return {"updated": True}
+from app.calendar_service import check_conflict, save_schedule, get_all_schedules
+
+class ScheduleInput(BaseModel):
+    email_id: int
+    title: str
+    start_time: str
+    attendees: str
+
+@app.post("/schedule/check")
+def check_schedule_conflict(time_str: str):
+    return check_conflict(time_str)
+
+@app.post("/schedule/save")
+def create_schedule(schedule: ScheduleInput):
+    result = save_schedule(
+        schedule.email_id,
+        schedule.title,
+        schedule.start_time,
+        schedule.attendees
+    )
+    return result
+
+@app.get("/schedule")
+def get_schedules():
+    return get_all_schedules()
