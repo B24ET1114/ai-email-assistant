@@ -297,3 +297,41 @@ def update_settings(settings: Settings):
     global app_settings
     app_settings = settings.dict()
     return {"message": "Settings updated!", "settings": app_settings}
+from app.email_reader import fetch_latest_emails, send_email, create_calendar_event
+
+@app.get("/gmail/fetch")
+def fetch_gmail():
+    try:
+        emails = fetch_latest_emails(max_results=10)
+        saved = []
+        for email in emails:
+            analysis = analyze_email(email['sender'], email['subject'], email['body'])
+            db = get_db()
+            cursor = db.cursor()
+            cursor.execute("""
+                INSERT OR IGNORE INTO emails 
+                (sender, subject, body, summary, intent, priority)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                email['sender'],
+                email['subject'],
+                email['body'],
+                analysis.get('summary'),
+                analysis.get('intent'),
+                analysis.get('priority')
+            ))
+            db.commit()
+            db.close()
+            saved.append(email['subject'])
+        return {"fetched": len(saved), "emails": saved}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/gmail/auth")
+def gmail_auth():
+    try:
+        from app.email_reader import get_gmail_service
+        get_gmail_service()
+        return {"status": "Gmail connected successfully!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

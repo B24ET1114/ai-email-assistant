@@ -25,11 +25,10 @@ interface Schedule {
 }
 
 interface Settings {
-  name: string
-  email: string
-  working_hours_start: string
-  working_hours_end: string
+  start: string
+  end: string
   timezone: string
+  name: string
 }
 
 export default function App() {
@@ -39,16 +38,16 @@ export default function App() {
   const [userInput, setUserInput] = useState('')
   const [aiReply, setAiReply] = useState('')
   const [loading, setLoading] = useState(false)
+  const [fetching, setFetching] = useState(false)
   const [view, setView] = useState<'inbox' | 'schedule' | 'settings'>('inbox')
   const [notification, setNotification] = useState('')
+  const [notifType, setNotifType] = useState<'success' | 'error' | 'warning'>('success')
   const [settings, setSettings] = useState<Settings>({
-    name: 'Pranav',
-    email: 'pranavkelapure2024.etc@mmcoe.edu.in',
-    working_hours_start: '09:00',
-    working_hours_end: '18:00',
-    timezone: 'Asia/Kolkata'
+    start: '09:00', end: '18:00', timezone: 'Asia/Kolkata', name: 'User'
   })
-  const [settingsForm, setSettingsForm] = useState<Settings>({ ...settings })
+  const [settingsForm, setSettingsForm] = useState<Settings>({
+    start: '09:00', end: '18:00', timezone: 'Asia/Kolkata', name: 'User'
+  })
 
   useEffect(() => {
     fetchEmails()
@@ -62,23 +61,30 @@ export default function App() {
   }, [])
 
   const fetchEmails = async () => {
-    const res = await axios.get(`${API}/emails/priority`)
-    setEmails(res.data)
+    try {
+      const res = await axios.get(`${API}/emails/priority`)
+      setEmails(res.data)
+    } catch {}
   }
 
   const fetchSchedules = async () => {
-    const res = await axios.get(`${API}/schedule`)
-    setSchedules(res.data)
+    try {
+      const res = await axios.get(`${API}/schedule`)
+      setSchedules(res.data)
+    } catch {}
   }
 
   const fetchSettings = async () => {
-    const res = await axios.get(`${API}/settings`)
-    setSettings(res.data)
-    setSettingsForm(res.data)
+    try {
+      const res = await axios.get(`${API}/settings/working-hours`)
+      setSettings(res.data)
+      setSettingsForm(res.data)
+    } catch {}
   }
 
-  const showNotification = (msg: string) => {
+  const showNotification = (msg: string, type: 'success' | 'error' | 'warning' = 'success') => {
     setNotification(msg)
+    setNotifType(type)
     setTimeout(() => setNotification(''), 6000)
   }
 
@@ -94,7 +100,7 @@ export default function App() {
       showNotification('Reply generated successfully!')
       fetchEmails()
     } catch {
-      showNotification('Error generating reply')
+      showNotification('Error generating reply', 'error')
     }
     setLoading(false)
   }
@@ -106,7 +112,7 @@ export default function App() {
       `${API}/schedule/check?time_str=${encodeURIComponent(timeSlot)}`
     )
     if (conflictRes.data.conflict) {
-      showNotification('⚠️ Conflict detected! Auto-declining and notifying sender...')
+      showNotification('⚠️ Conflict detected! Auto-declining this meeting request...', 'warning')
       await axios.post(`${API}/emails/reply`, {
         email_id: selected.id,
         user_input: 'decline politely due to scheduling conflict, ask them to suggest another time'
@@ -119,7 +125,7 @@ export default function App() {
         start_time: timeSlot,
         attendees: selected.sender
       })
-      showNotification('✅ Meeting scheduled successfully!')
+      showNotification('Meeting scheduled successfully!')
       fetchSchedules()
     }
   }
@@ -127,23 +133,39 @@ export default function App() {
   const handleSimulate = async () => {
     await axios.post(`${API}/emails/simulate`)
     fetchEmails()
-    showNotification('📧 New email received!')
+    showNotification('New simulated email received!')
+  }
+
+  const handleFetchGmail = async () => {
+    setFetching(true)
+    try {
+      const res = await axios.get(`${API}/gmail/fetch`)
+      fetchEmails()
+      showNotification(`Fetched ${res.data.fetched} real emails from Gmail!`)
+    } catch {
+      showNotification('Error fetching Gmail — check connection', 'error')
+    }
+    setFetching(false)
   }
 
   const handleThreadSummary = async () => {
     if (!selected) return
     try {
       const res = await axios.get(`${API}/emails/thread/${encodeURIComponent(selected.sender)}`)
-      showNotification(`🧵 Thread (${res.data.email_count} emails): ${res.data.summary}`)
+      showNotification(`Thread (${res.data.email_count} emails): ${res.data.summary}`)
     } catch {
-      showNotification('No thread found for this sender')
+      showNotification('No thread found for this sender', 'error')
     }
   }
 
   const handleSaveSettings = async () => {
-    await axios.post(`${API}/settings`, settingsForm)
-    setSettings(settingsForm)
-    showNotification('✅ Settings saved!')
+    try {
+      await axios.post(`${API}/settings/working-hours`, settingsForm)
+      setSettings(settingsForm)
+      showNotification('Settings saved successfully!')
+    } catch {
+      showNotification('Error saving settings', 'error')
+    }
   }
 
   const priorityColor = (p: string) => {
@@ -159,99 +181,111 @@ export default function App() {
     return '📧'
   }
 
+  const notifBg = notifType === 'error' ? 'bg-red-600' : notifType === 'warning' ? 'bg-amber-500' : 'bg-indigo-600'
   const highCount = emails.filter(e => e.priority === 'high' && e.status === 'pending').length
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {notification && (
-        <div className="fixed top-4 right-4 bg-indigo-600 text-white px-6 py-3 rounded-xl shadow-lg z-50 text-sm font-medium max-w-sm">
+        <div className={`fixed top-4 right-4 ${notifBg} text-white px-6 py-3 rounded-xl shadow-lg z-50 text-sm font-medium max-w-sm`}>
           {notification}
         </div>
       )}
 
       {/* Header */}
-      <div className="bg-indigo-600 text-white px-6 py-4 flex justify-between items-center shadow-lg">
+      <div className="bg-indigo-600 text-white px-6 py-4 flex justify-between items-center shadow-md">
         <div>
           <h1 className="text-xl font-bold">AI Email Assistant</h1>
           <p className="text-indigo-200 text-xs">
-            {settings.name} &nbsp;·&nbsp; {settings.working_hours_start}–{settings.working_hours_end} {settings.timezone}
+            Hi {settings.name} &nbsp;|&nbsp; {settings.start} – {settings.end} &nbsp;|&nbsp; {settings.timezone}
           </p>
         </div>
-        <div className="flex gap-2 items-center">
-          <button onClick={() => setView('inbox')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${view === 'inbox' ? 'bg-white text-indigo-600' : 'text-white hover:bg-indigo-500'}`}>
+        <div className="flex gap-2 items-center flex-wrap justify-end">
+          <button
+            onClick={() => setView('inbox')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${view === 'inbox' ? 'bg-white text-indigo-600' : 'text-white hover:bg-indigo-500'}`}
+          >
             Inbox ({emails.length})
             {highCount > 0 && (
-              <span className="ml-1 bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5">{highCount}</span>
+              <span className="ml-1 bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5">
+                {highCount}
+              </span>
             )}
           </button>
-          <button onClick={() => setView('schedule')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${view === 'schedule' ? 'bg-white text-indigo-600' : 'text-white hover:bg-indigo-500'}`}>
+          <button
+            onClick={() => setView('schedule')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${view === 'schedule' ? 'bg-white text-indigo-600' : 'text-white hover:bg-indigo-500'}`}
+          >
             Schedule ({schedules.length})
           </button>
-          <button onClick={() => setView('settings')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${view === 'settings' ? 'bg-white text-indigo-600' : 'text-white hover:bg-indigo-500'}`}>
+          <button
+            onClick={() => setView('settings')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${view === 'settings' ? 'bg-white text-indigo-600' : 'text-white hover:bg-indigo-500'}`}
+          >
             ⚙️ Settings
           </button>
-          <button onClick={handleSimulate}
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-green-500 text-white hover:bg-green-400 transition-colors">
-            + Simulate Email
+          <button
+            onClick={handleFetchGmail}
+            disabled={fetching}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-500 text-white hover:bg-blue-400 disabled:opacity-50 transition-colors"
+          >
+            {fetching ? 'Fetching...' : '📬 Fetch Gmail'}
+          </button>
+          <button
+            onClick={handleSimulate}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-green-500 text-white hover:bg-green-400 transition-colors"
+          >
+            + Simulate
           </button>
         </div>
       </div>
 
       {/* Settings View */}
       {view === 'settings' && (
-        <div className="flex-1 p-8 max-w-xl mx-auto w-full">
+        <div className="flex-1 p-8 max-w-lg mx-auto w-full">
           <h2 className="text-lg font-bold text-gray-900 mb-6">Settings</h2>
           <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
             <div>
-              <label className="text-xs font-semibold text-gray-500 block mb-1">YOUR NAME</label>
+              <label className="text-sm font-medium text-gray-700 block mb-1">Your Name</label>
               <input
+                type="text"
                 value={settingsForm.name}
                 onChange={e => setSettingsForm({...settingsForm, name: e.target.value})}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                placeholder="Enter your name"
               />
             </div>
-            <div>
-              <label className="text-xs font-semibold text-gray-500 block mb-1">YOUR EMAIL</label>
-              <input
-                value={settingsForm.email}
-                onChange={e => setSettingsForm({...settingsForm, email: e.target.value})}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-              />
-            </div>
-            <div className="flex gap-4">
-              <div className="flex-1">
-                <label className="text-xs font-semibold text-gray-500 block mb-1">WORK START</label>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Work Start</label>
                 <input
                   type="time"
-                  value={settingsForm.working_hours_start}
-                  onChange={e => setSettingsForm({...settingsForm, working_hours_start: e.target.value})}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                  value={settingsForm.start}
+                  onChange={e => setSettingsForm({...settingsForm, start: e.target.value})}
+                  className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
                 />
               </div>
-              <div className="flex-1">
-                <label className="text-xs font-semibold text-gray-500 block mb-1">WORK END</label>
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Work End</label>
                 <input
                   type="time"
-                  value={settingsForm.working_hours_end}
-                  onChange={e => setSettingsForm({...settingsForm, working_hours_end: e.target.value})}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                  value={settingsForm.end}
+                  onChange={e => setSettingsForm({...settingsForm, end: e.target.value})}
+                  className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
                 />
               </div>
             </div>
             <div>
-              <label className="text-xs font-semibold text-gray-500 block mb-1">TIMEZONE</label>
+              <label className="text-sm font-medium text-gray-700 block mb-1">Timezone</label>
               <select
                 value={settingsForm.timezone}
                 onChange={e => setSettingsForm({...settingsForm, timezone: e.target.value})}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
               >
                 <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
                 <option value="America/New_York">America/New_York (EST)</option>
                 <option value="Europe/London">Europe/London (GMT)</option>
-                <option value="Asia/Tokyo">Asia/Tokyo (JST)</option>
+                <option value="Asia/Singapore">Asia/Singapore (SGT)</option>
               </select>
             </div>
             <button
@@ -262,13 +296,20 @@ export default function App() {
             </button>
           </div>
 
-          {/* AI Disclaimer */}
-          <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-xl p-4">
-            <p className="text-xs font-semibold text-yellow-700 mb-1">AI DISCLAIMER</p>
-            <p className="text-xs text-yellow-600">
-              All outgoing emails sent by this assistant include the disclaimer:
-              "This message was sent by an experimental AI email assistant on behalf of {settings.name}."
-            </p>
+          {/* Gmail Status */}
+          <div className="bg-white rounded-xl shadow-sm p-6 mt-4">
+            <h3 className="font-bold text-gray-900 mb-3">Gmail Connection</h3>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>
+              <p className="text-sm text-gray-700">Gmail connected via OAuth</p>
+            </div>
+            <button
+              onClick={handleFetchGmail}
+              disabled={fetching}
+              className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              {fetching ? 'Fetching...' : '📬 Fetch Latest Emails from Gmail'}
+            </button>
           </div>
         </div>
       )}
@@ -283,7 +324,7 @@ export default function App() {
               <p>No meetings scheduled yet</p>
             </div>
           ) : (
-            <div className="grid gap-3">
+            <div className="grid gap-3 max-w-2xl">
               {schedules.map(s => (
                 <div key={s.id} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex justify-between items-center">
                   <div>
@@ -308,13 +349,17 @@ export default function App() {
       {/* Inbox View */}
       {view === 'inbox' && (
         <div className="flex flex-1 overflow-hidden">
-          {/* Sidebar */}
           <div className="w-1/3 bg-white border-r border-gray-200 overflow-y-auto">
+            {highCount > 0 && (
+              <div className="bg-red-50 border-b border-red-100 px-4 py-2">
+                <p className="text-xs text-red-600 font-medium">⚠️ {highCount} high priority email{highCount > 1 ? 's' : ''} need attention</p>
+              </div>
+            )}
             {emails.length === 0 && (
               <div className="p-8 text-center text-gray-400">
                 <p className="text-4xl mb-2">📭</p>
                 <p>No emails yet</p>
-                <p className="text-xs mt-2">Click + Simulate Email to test</p>
+                <p className="text-xs mt-2">Click "+ Simulate" or "📬 Fetch Gmail"</p>
               </div>
             )}
             {emails.map(email => (
@@ -343,13 +388,13 @@ export default function App() {
             ))}
           </div>
 
-          {/* Main Panel */}
           <div className="flex-1 flex flex-col overflow-y-auto">
             {!selected ? (
               <div className="flex-1 flex items-center justify-center text-gray-400">
                 <div className="text-center">
                   <p className="text-6xl mb-4">👆</p>
-                  <p className="text-xl">Select an email to get started</p>
+                  <p className="text-xl font-medium">Select an email to get started</p>
+                  <p className="text-sm mt-2">or click "+ Simulate" to receive a test email</p>
                   {highCount > 0 && (
                     <p className="text-red-500 text-sm mt-3 font-medium">
                       ⚠️ {highCount} high priority email{highCount > 1 ? 's' : ''} need attention!
@@ -359,15 +404,13 @@ export default function App() {
               </div>
             ) : (
               <div className="p-6 space-y-4">
-                {/* Email Header */}
                 <div className="bg-white rounded-xl shadow-sm p-5">
                   <div className="flex justify-between items-start mb-3">
                     <div>
                       <h2 className="text-xl font-bold text-gray-900">{selected.subject}</h2>
-                      <p className="text-gray-500 text-sm">From: {selected.sender}</p>
-                      <p className="text-gray-400 text-xs">{new Date(selected.received_at).toLocaleString()}</p>
+                      <p className="text-gray-500 text-sm mt-0.5">From: {selected.sender}</p>
                     </div>
-                    <div className="flex gap-2 flex-wrap justify-end">
+                    <div className="flex gap-2">
                       <span className={`text-xs px-3 py-1 rounded-full font-medium ${priorityColor(selected.priority)}`}>
                         {selected.priority} priority
                       </span>
@@ -376,8 +419,6 @@ export default function App() {
                       </span>
                     </div>
                   </div>
-
-                  {/* AI Summary */}
                   <div className="bg-indigo-50 rounded-lg p-3 mb-3">
                     <div className="flex justify-between items-center mb-1">
                       <p className="text-xs font-semibold text-indigo-600">AI SUMMARY</p>
@@ -390,14 +431,12 @@ export default function App() {
                     </div>
                     <p className="text-gray-700 text-sm">{selected.summary}</p>
                   </div>
-
                   <div>
                     <p className="text-xs font-semibold text-gray-500 mb-1">ORIGINAL EMAIL</p>
                     <p className="text-gray-700 text-sm whitespace-pre-wrap">{selected.body}</p>
                   </div>
                 </div>
 
-                {/* Schedule Button */}
                 {selected.intent === 'meeting_request' && (
                   <div className="bg-white rounded-xl shadow-sm p-5">
                     <h3 className="font-bold text-gray-900 mb-3">Quick Actions</h3>
@@ -410,7 +449,6 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Reply Section */}
                 <div className="bg-white rounded-xl shadow-sm p-5">
                   <h3 className="font-bold text-gray-900 mb-3">Your Response</h3>
                   <div className="flex gap-2 mb-3 flex-wrap">
@@ -427,7 +465,7 @@ export default function App() {
                   <textarea
                     value={userInput}
                     onChange={e => setUserInput(e.target.value)}
-                    placeholder="Type yes, no, or any instruction..."
+                    placeholder="Type yes, no, or any instruction... e.g. 'Reschedule to Thursday 4pm'"
                     className="w-full border border-gray-200 rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300"
                     rows={3}
                   />
@@ -436,9 +474,8 @@ export default function App() {
                     disabled={loading || !userInput}
                     className="mt-3 w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
                   >
-                    {loading ? '⏳ AI is writing...' : '✉️ Generate & Send Reply'}
+                    {loading ? '✍️ AI is writing...' : 'Generate & Send Reply'}
                   </button>
-
                   {aiReply && (
                     <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
                       <p className="text-xs font-semibold text-green-700 mb-2">✅ AI DRAFTED REPLY</p>
