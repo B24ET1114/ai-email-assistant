@@ -37,16 +37,17 @@ Return only valid JSON, nothing else.
     except:
         return {"summary": "Could not analyze email.", "intent": "general", "priority": "medium", "time_slots": [], "requires_response": False}
 
-def draft_reply(sender: str, original_email: str, user_input: str, context: str = "", user_name: str = "User") -> str:
+def draft_reply(sender: str, original_email: str, user_input: str, context: str = "", user_name: str = "User", thread_history: str = "") -> str:
     prompt = f"""
 You are an AI email assistant. Draft a professional email reply.
 
+{f"Previous thread history for context:{chr(10)}{thread_history}{chr(10)}" if thread_history else ""}
 Original email from {sender}:
 {original_email}
 
 The user's instruction: "{user_input}"
 
-{f"Context: {context}" if context else ""}
+{f"Additional context: {context}" if context else ""}
 
 Write a complete professional email reply based on the user's instruction.
 Sign the email with the name "{user_name}" — never use placeholders like [Your Name].

@@ -181,11 +181,26 @@ def reply_to_email(reply: ReplyInput):
     except:
         user_name = "User"
 
+    # Get thread history for context
+    thread_history = ""
+    try:
+        cursor.execute("""
+            SELECT sender, body FROM emails
+            WHERE sender = ? AND id != ?
+            ORDER BY received_at DESC LIMIT 3
+        """, (email["sender"], reply.email_id))
+        thread_emails = cursor.fetchall()
+        if thread_emails:
+            thread_history = "\n".join([f"From {r[0]}: {r[1][:200]}" for r in thread_emails])
+    except:
+        pass
+
     ai_reply = draft_reply(
         sender=email["sender"],
         original_email=email["body"],
         user_input=reply.user_input,
-        user_name=user_name
+        user_name=user_name,
+        thread_history=thread_history
     )
 
     try:
@@ -207,6 +222,18 @@ def reply_to_email(reply: ReplyInput):
     cursor.execute("UPDATE emails SET status = 'replied' WHERE id = ?", (reply.email_id,))
     db.commit()
     db.close()
+    try:
+        db3 = get_db()
+        cur3 = db3.cursor()
+        cur3.execute("""
+            INSERT INTO ai_actions (action_type, email_id, description, result)
+            VALUES (?, ?, ?, ?)
+        """, ("reply", reply.email_id, f"AI replied to {email['sender']}", ai_reply[:100]))
+        db3.commit()
+        db3.close()
+    except:
+        pass
+
     return {"reply": ai_reply}
 
 @app.patch("/emails/{email_id}/read")
@@ -618,7 +645,7 @@ def setup_digest(email: str):
     db.commit()
     db.close()
     return {"message": f"Daily digest will be sent to {email} every morning at 9am"}
-from app.ai_agent import analyze_email, draft_reply, handle_conflict, summarize_thread, extract_availability, find_common_slots, generate_meeting_agenda, detect_ambiguity
+from app.ai_agent import analyze_email, draft_reply, handle_conflict, summarize_thread, extract_availability, find_common_slots, generate_meeting_agenda, detect_ambiguity, suggest_replies
 
 @app.get("/emails/{email_id}/ambiguity")
 def check_ambiguity(email_id: int):
@@ -694,3 +721,24 @@ def undo_action(action_id: int):
     db.commit()
     db.close()
     return {"message": "Action undone successfully"}
+@app.get("/onboarding/status")
+def get_onboarding_status():
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        cursor.execute("SELECT value FROM settings WHERE key = 'onboarding_complete'")
+        row = cursor.fetchone()
+        db.close()
+        return {"complete": row is not None and row[0] == "true"}
+    except:
+        db.close()
+        return {"complete": False}
+
+@app.post("/onboarding/complete")
+def complete_onboarding():
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("INSERT OR REPLACE INTO settings VALUES ('onboarding_complete', 'true')")
+    db.commit()
+    db.close()
+    return {"message": "Onboarding complete!"}
