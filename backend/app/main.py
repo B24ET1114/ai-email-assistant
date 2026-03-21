@@ -436,3 +436,92 @@ def check_duplicate(title: str, start_time: str):
     existing = cursor.fetchone()
     db.close()
     return {"duplicate": existing is not None}
+import datetime
+import requests as http_requests
+
+@app.get("/weather")
+def get_weather():
+    try:
+        # Get weather for Pune (your location)
+        url = "https://wttr.in/Pune?format=j1"
+        res = http_requests.get(url, timeout=5)
+        data = res.json()
+        
+        temp = data['current_condition'][0]['temp_C']
+        weather_desc = data['current_condition'][0]['weatherDesc'][0]['value'].lower()
+        humidity = data['current_condition'][0]['humidity']
+        
+        # Determine weather type
+        if any(w in weather_desc for w in ['rain', 'drizzle', 'shower']):
+            weather_type = 'rainy'
+        elif any(w in weather_desc for w in ['thunder', 'storm']):
+            weather_type = 'storm'
+        elif any(w in weather_desc for w in ['cloud', 'overcast']):
+            weather_type = 'cloudy'
+        elif any(w in weather_desc for w in ['snow', 'blizzard']):
+            weather_type = 'snow'
+        elif any(w in weather_desc for w in ['fog', 'mist', 'haze']):
+            weather_type = 'foggy'
+        else:
+            weather_type = 'sunny'
+        
+        # Meeting suggestion based on weather
+        if weather_type in ['rainy', 'storm', 'snow']:
+            suggestion = "Bad weather outside — prefer online meetings today"
+            alert = True
+        elif weather_type == 'foggy':
+            suggestion = "Foggy conditions — consider online meetings"
+            alert = True
+        else:
+            suggestion = "Weather looks good for in-person meetings"
+            alert = False
+
+        # Time-based greeting
+        hour = datetime.datetime.now().hour
+        if 5 <= hour < 12:
+            greeting = "Good morning"
+            time_of_day = "morning"
+        elif 12 <= hour < 17:
+            greeting = "Good afternoon"
+            time_of_day = "afternoon"
+        elif 17 <= hour < 21:
+            greeting = "Good evening"
+            time_of_day = "evening"
+        else:
+            greeting = "Good night"
+            time_of_day = "night"
+
+        return {
+            "greeting": greeting,
+            "time_of_day": time_of_day,
+            "temp_c": temp,
+            "weather_desc": weather_desc,
+            "weather_type": weather_type,
+            "humidity": humidity,
+            "suggestion": suggestion,
+            "alert": alert
+        }
+    except Exception as e:
+        hour = datetime.datetime.now().hour
+        if 5 <= hour < 12:
+            greeting = "Good morning"
+            time_of_day = "morning"
+        elif 12 <= hour < 17:
+            greeting = "Good afternoon"
+            time_of_day = "afternoon"
+        elif 17 <= hour < 21:
+            greeting = "Good evening"
+            time_of_day = "evening"
+        else:
+            greeting = "Good night"
+            time_of_day = "night"
+        return {
+            "greeting": greeting,
+            "time_of_day": time_of_day,
+            "temp_c": "N/A",
+            "weather_desc": "unavailable",
+            "weather_type": "sunny",
+            "humidity": "N/A",
+            "suggestion": "Weather data unavailable",
+            "alert": False
+        }
