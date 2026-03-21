@@ -134,10 +134,22 @@ def reply_to_email(reply: ReplyInput):
         raise HTTPException(status_code=404, detail="Email not found")
     email = dict(email)
 
+    # Get user name from settings
+    db2 = get_db()
+    cursor2 = db2.cursor()
+    try:
+        cursor2.execute("SELECT value FROM settings WHERE key = 'name'")
+        row = cursor2.fetchone()
+        user_name = row[0] if row else "User"
+    except:
+        user_name = "User"
+    db2.close()
+
     ai_reply = draft_reply(
         sender=email["sender"],
         original_email=email["body"],
-        user_input=reply.user_input
+        user_input=reply.user_input,
+        user_name=user_name
     )
 
     # Actually send the email via Gmail
@@ -377,3 +389,50 @@ def get_analytics():
         "meeting_requests": meeting_requests,
         "response_rate": round((replied / total * 100) if total > 0 else 0, 1)
     }
+from app.ai_agent import analyze_email, draft_reply, handle_conflict, summarize_thread, extract_availability, find_common_slots
+
+class AvailabilityInput(BaseModel):
+    email_id: int
+
+@app.post("/availability/extract")
+def extract_email_availability(data: AvailabilityInput):
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT * FROM emails WHERE id = ?", (data.email_id,))
+    email = cursor.fetchone()
+    db.close()
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+    email = dict(email)
+    availability = extract_availability(email["body"], email["sender"])
+    return availability
+
+@app.post("/availability/overlap")
+def find_overlap(email_ids: list[int]):
+    availabilities = []
+    for email_id in email_ids:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT * FROM emails WHERE id = ?", (email_id,))
+        email = cursor.fetchone()
+        db.close()
+        if email:
+            email = dict(email)
+            availability = extract_availability(email["body"], email["sender"])
+            availabilities.append(availability)
+    if not availabilities:
+        raise HTTPException(status_code=404, detail="No emails found")
+    common_slots = find_common_slots(availabilities)
+    return {"common_slots": common_slots, "participants": len(availabilities)}
+
+@app.get("/schedule/check-duplicate")
+def check_duplicate(title: str, start_time: str):
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("""
+        SELECT * FROM schedules 
+        WHERE event_title = ? AND start_time = ?
+    """, (title, start_time))
+    existing = cursor.fetchone()
+    db.close()
+    return {"duplicate": existing is not None}
