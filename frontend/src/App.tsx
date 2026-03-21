@@ -32,6 +32,15 @@ interface Settings {
   name: string
 }
 
+interface Analytics {
+  total_emails: number
+  replied: number
+  pending: number
+  high_priority: number
+  meetings_scheduled: number
+  response_rate: number
+}
+
 export default function App() {
   const [emails, setEmails] = useState<Email[]>([])
   const [schedules, setSchedules] = useState<Schedule[]>([])
@@ -49,14 +58,20 @@ export default function App() {
   const [settingsForm, setSettingsForm] = useState<Settings>({
     start: '09:00', end: '18:00', timezone: 'Asia/Kolkata', name: 'User'
   })
+  const [analytics, setAnalytics] = useState<Analytics>({
+    total_emails: 0, replied: 0, pending: 0,
+    high_priority: 0, meetings_scheduled: 0, response_rate: 0
+  })
 
   useEffect(() => {
     fetchEmails()
     fetchSchedules()
     fetchSettings()
+    fetchAnalytics()
     const interval = setInterval(() => {
       fetchEmails()
       fetchSchedules()
+      fetchAnalytics()
     }, 5000)
     return () => clearInterval(interval)
   }, [])
@@ -83,6 +98,13 @@ export default function App() {
     } catch {}
   }
 
+  const fetchAnalytics = async () => {
+    try {
+      const res = await axios.get(`${API}/analytics`)
+      setAnalytics(res.data)
+    } catch {}
+  }
+
   const showNotification = (msg: string, type: 'success' | 'error' | 'warning' = 'success') => {
     setNotification(msg)
     setNotifType(type)
@@ -100,6 +122,7 @@ export default function App() {
       setAiReply(res.data.reply)
       showNotification('Reply sent successfully!')
       fetchEmails()
+      fetchAnalytics()
     } catch {
       showNotification('Error sending reply', 'error')
     }
@@ -113,7 +136,7 @@ export default function App() {
       `${API}/schedule/check?time_str=${encodeURIComponent(timeSlot)}`
     )
     if (conflictRes.data.conflict) {
-      showNotification('⚠️ Conflict detected! Auto-declining this meeting request...', 'warning')
+      showNotification('⚠️ Conflict detected! Auto-declining...', 'warning')
       await axios.post(`${API}/emails/reply`, {
         email_id: selected.id,
         user_input: 'decline politely due to scheduling conflict, ask them to suggest another time'
@@ -128,12 +151,14 @@ export default function App() {
       })
       showNotification('Meeting scheduled + Google Calendar event created!')
       fetchSchedules()
+      fetchAnalytics()
     }
   }
 
   const handleSimulate = async () => {
     await axios.post(`${API}/emails/simulate`)
     fetchEmails()
+    fetchAnalytics()
     showNotification('New simulated email received!')
   }
 
@@ -142,6 +167,7 @@ export default function App() {
     try {
       const res = await axios.get(`${API}/gmail/fetch`)
       fetchEmails()
+      fetchAnalytics()
       showNotification(`Fetched ${res.data.fetched} real emails from Gmail!`)
     } catch {
       showNotification('Error fetching Gmail', 'error')
@@ -169,6 +195,16 @@ export default function App() {
     }
   }
 
+  const handleReset = async () => {
+    if (!confirm('Clear all emails and schedules for fresh demo?')) return
+    await axios.delete(`${API}/reset`)
+    fetchEmails()
+    fetchSchedules()
+    fetchAnalytics()
+    setSelected(null)
+    showNotification('Database cleared - ready for demo!')
+  }
+
   const priorityColor = (p: string) => {
     if (p === 'high') return 'bg-red-100 text-red-800'
     if (p === 'medium') return 'bg-yellow-100 text-yellow-800'
@@ -185,15 +221,6 @@ export default function App() {
   const notifBg = notifType === 'error' ? 'bg-red-600' : notifType === 'warning' ? 'bg-amber-500' : 'bg-green-600'
   const highCount = emails.filter(e => e.priority === 'high' && e.status === 'pending').length
 
-  const handleReset = async () => {
-    if (!confirm('Clear all emails and schedules for fresh demo?')) return
-    await axios.delete(`${API}/reset`)
-    fetchEmails()
-    fetchSchedules()
-    setSelected(null)
-    showNotification('Database cleared - ready for demo!')
-  }
-
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {notification && (
@@ -207,7 +234,7 @@ export default function App() {
         <div>
           <h1 className="text-xl font-bold">AI Email Assistant</h1>
           <p className="text-indigo-200 text-xs">
-            Hi {settings.name} &nbsp;|&nbsp; {settings.start} – {settings.end} &nbsp;|&nbsp; {settings.timezone}
+            Hi {settings.name} &nbsp;|&nbsp; {settings.start} – {settings.end} &nbsp;|&nbsp; {settings.timezone} &nbsp;|&nbsp; Auto-sync every 1 min
           </p>
         </div>
         <div className="flex gap-2 items-center flex-wrap justify-end">
@@ -277,6 +304,7 @@ export default function App() {
               Save Settings
             </button>
           </div>
+
           <div className="bg-white rounded-xl shadow-sm p-6 mt-4">
             <h3 className="font-bold text-gray-900 mb-3">Connections</h3>
             <div className="flex items-center gap-2 mb-4">
@@ -308,7 +336,7 @@ export default function App() {
         <div className="flex-1 p-6">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-bold text-gray-900">Upcoming Meetings</h2>
-            <span className="text-xs text-gray-500 bg-green-100 text-green-700 px-3 py-1 rounded-full font-medium">
+            <span className="text-xs bg-green-100 text-green-700 px-3 py-1 rounded-full font-medium">
               Synced with Google Calendar
             </span>
           </div>
@@ -350,129 +378,158 @@ export default function App() {
 
       {/* Inbox View */}
       {view === 'inbox' && (
-        <div className="flex flex-1 overflow-hidden">
-          <div className="w-1/3 bg-white border-r border-gray-200 overflow-y-auto">
-            {highCount > 0 && (
-              <div className="bg-red-50 border-b border-red-100 px-4 py-2">
-                <p className="text-xs text-red-600 font-medium">⚠️ {highCount} high priority email{highCount > 1 ? 's' : ''} need attention</p>
-              </div>
-            )}
-            {emails.length === 0 && (
-              <div className="p-8 text-center text-gray-400">
-                <p className="text-4xl mb-2">📭</p>
-                <p>No emails yet</p>
-                <p className="text-xs mt-2">Click "+ Simulate" or "📬 Fetch Gmail"</p>
-              </div>
-            )}
-            {emails.map(email => (
-              <div key={email.id}
-                onClick={() => { setSelected(email); setAiReply(''); setUserInput('') }}
-                className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-indigo-50 transition-colors
-                  ${selected?.id === email.id ? 'bg-indigo-50 border-l-4 border-l-indigo-600' : ''}
-                  ${email.priority === 'high' && selected?.id !== email.id ? 'border-l-4 border-l-red-400' : ''}`}>
-                <div className="flex justify-between items-start mb-1">
-                  <span className="font-medium text-gray-900 text-sm truncate">{email.sender}</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${priorityColor(email.priority)}`}>
-                    {email.priority}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1 mb-1">
-                  <span>{intentIcon(email.intent)}</span>
-                  <p className="text-sm text-gray-700 font-medium truncate">{email.subject}</p>
-                </div>
-                <p className="text-xs text-gray-500 line-clamp-2">{email.summary}</p>
-                <span className={`text-xs mt-1 inline-block px-2 py-0.5 rounded-full ${email.status === 'replied' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                  {email.status}
-                </span>
-              </div>
-            ))}
+        <div className="flex flex-1 overflow-hidden flex-col">
+
+          {/* Analytics Bar */}
+          <div className="grid grid-cols-5 gap-3 p-4 bg-white border-b border-gray-100 shadow-sm">
+            <div className="text-center">
+              <p className="text-2xl font-bold text-indigo-600">{analytics.total_emails}</p>
+              <p className="text-xs text-gray-500">Total</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-green-600">{analytics.replied}</p>
+              <p className="text-xs text-gray-500">Replied</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-amber-600">{analytics.pending}</p>
+              <p className="text-xs text-gray-500">Pending</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-red-600">{analytics.high_priority}</p>
+              <p className="text-xs text-gray-500">High Priority</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-purple-600">{analytics.response_rate}%</p>
+              <p className="text-xs text-gray-500">Response Rate</p>
+            </div>
           </div>
 
-          <div className="flex-1 flex flex-col overflow-y-auto">
-            {!selected ? (
-              <div className="flex-1 flex items-center justify-center text-gray-400">
-                <div className="text-center">
-                  <p className="text-6xl mb-4">👆</p>
-                  <p className="text-xl font-medium">Select an email to get started</p>
-                  <p className="text-sm mt-2">or click "+ Simulate" to receive a test email</p>
-                  {highCount > 0 && (
-                    <p className="text-red-500 text-sm mt-3 font-medium">
-                      ⚠️ {highCount} high priority email{highCount > 1 ? 's' : ''} need attention!
-                    </p>
-                  )}
+          <div className="flex flex-1 overflow-hidden">
+            {/* Sidebar */}
+            <div className="w-1/3 bg-white border-r border-gray-200 overflow-y-auto">
+              {highCount > 0 && (
+                <div className="bg-red-50 border-b border-red-100 px-4 py-2">
+                  <p className="text-xs text-red-600 font-medium">⚠️ {highCount} high priority email{highCount > 1 ? 's' : ''} need attention</p>
                 </div>
-              </div>
-            ) : (
-              <div className="p-6 space-y-4">
-                <div className="bg-white rounded-xl shadow-sm p-5">
-                  <div className="flex justify-between items-start mb-3">
-                    <div>
-                      <h2 className="text-xl font-bold text-gray-900">{selected.subject}</h2>
-                      <p className="text-gray-500 text-sm mt-0.5">From: {selected.sender}</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <span className={`text-xs px-3 py-1 rounded-full font-medium ${priorityColor(selected.priority)}`}>
-                        {selected.priority} priority
-                      </span>
-                      <span className="text-xs px-3 py-1 rounded-full bg-blue-100 text-blue-800 font-medium">
-                        {selected.intent.replace('_', ' ')}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="bg-indigo-50 rounded-lg p-3 mb-3">
-                    <div className="flex justify-between items-center mb-1">
-                      <p className="text-xs font-semibold text-indigo-600">AI SUMMARY</p>
-                      <button onClick={handleThreadSummary}
-                        className="text-xs text-indigo-500 hover:text-indigo-700 underline">
-                        View full thread
-                      </button>
-                    </div>
-                    <p className="text-gray-700 text-sm">{selected.summary}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold text-gray-500 mb-1">ORIGINAL EMAIL</p>
-                    <p className="text-gray-700 text-sm whitespace-pre-wrap">{selected.body}</p>
-                  </div>
+              )}
+              {emails.length === 0 && (
+                <div className="p-8 text-center text-gray-400">
+                  <p className="text-4xl mb-2">📭</p>
+                  <p>No emails yet</p>
+                  <p className="text-xs mt-2">Click "+ Simulate" or "📬 Fetch Gmail"</p>
                 </div>
+              )}
+              {emails.map(email => (
+                <div key={email.id}
+                  onClick={() => { setSelected(email); setAiReply(''); setUserInput('') }}
+                  className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-indigo-50 transition-colors
+                    ${selected?.id === email.id ? 'bg-indigo-50 border-l-4 border-l-indigo-600' : ''}
+                    ${email.priority === 'high' && selected?.id !== email.id ? 'border-l-4 border-l-red-400' : ''}`}>
+                  <div className="flex justify-between items-start mb-1">
+                    <span className="font-medium text-gray-900 text-sm truncate">{email.sender}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${priorityColor(email.priority)}`}>
+                      {email.priority}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 mb-1">
+                    <span>{intentIcon(email.intent)}</span>
+                    <p className="text-sm text-gray-700 font-medium truncate">{email.subject}</p>
+                  </div>
+                  <p className="text-xs text-gray-500 line-clamp-2">{email.summary}</p>
+                  <span className={`text-xs mt-1 inline-block px-2 py-0.5 rounded-full ${email.status === 'replied' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                    {email.status}
+                  </span>
+                </div>
+              ))}
+            </div>
 
-                {selected.intent === 'meeting_request' && (
+            {/* Main Panel */}
+            <div className="flex-1 flex flex-col overflow-y-auto">
+              {!selected ? (
+                <div className="flex-1 flex items-center justify-center text-gray-400">
+                  <div className="text-center">
+                    <p className="text-6xl mb-4">👆</p>
+                    <p className="text-xl font-medium">Select an email to get started</p>
+                    <p className="text-sm mt-2">or click "+ Simulate" to receive a test email</p>
+                    {highCount > 0 && (
+                      <p className="text-red-500 text-sm mt-3 font-medium">
+                        ⚠️ {highCount} high priority email{highCount > 1 ? 's' : ''} need attention!
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-6 space-y-4">
                   <div className="bg-white rounded-xl shadow-sm p-5">
-                    <h3 className="font-bold text-gray-900 mb-3">Quick Actions</h3>
-                    <button onClick={handleSchedule}
-                      className="w-full bg-green-600 text-white py-2.5 rounded-lg font-medium hover:bg-green-700 transition-colors">
-                      📅 Check Conflicts & Schedule Meeting
-                    </button>
-                    <p className="text-xs text-gray-400 mt-2 text-center">Creates a real Google Calendar event automatically</p>
+                    <div className="flex justify-between items-start mb-3">
+                      <div>
+                        <h2 className="text-xl font-bold text-gray-900">{selected.subject}</h2>
+                        <p className="text-gray-500 text-sm mt-0.5">From: {selected.sender}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <span className={`text-xs px-3 py-1 rounded-full font-medium ${priorityColor(selected.priority)}`}>
+                          {selected.priority} priority
+                        </span>
+                        <span className="text-xs px-3 py-1 rounded-full bg-blue-100 text-blue-800 font-medium">
+                          {selected.intent.replace('_', ' ')}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="bg-indigo-50 rounded-lg p-3 mb-3">
+                      <div className="flex justify-between items-center mb-1">
+                        <p className="text-xs font-semibold text-indigo-600">AI SUMMARY</p>
+                        <button onClick={handleThreadSummary}
+                          className="text-xs text-indigo-500 hover:text-indigo-700 underline">
+                          View full thread
+                        </button>
+                      </div>
+                      <p className="text-gray-700 text-sm">{selected.summary}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 mb-1">ORIGINAL EMAIL</p>
+                      <p className="text-gray-700 text-sm whitespace-pre-wrap">{selected.body}</p>
+                    </div>
                   </div>
-                )}
 
-                <div className="bg-white rounded-xl shadow-sm p-5">
-                  <h3 className="font-bold text-gray-900 mb-3">Your Response</h3>
-                  <div className="flex gap-2 mb-3 flex-wrap">
-                    {['Yes, confirmed!', 'No, not available', 'Reschedule please', 'Need more info'].map(q => (
-                      <button key={q} onClick={() => setUserInput(q)}
-                        className="text-xs px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-full hover:bg-indigo-100 transition-colors">
-                        {q}
+                  {selected.intent === 'meeting_request' && (
+                    <div className="bg-white rounded-xl shadow-sm p-5">
+                      <h3 className="font-bold text-gray-900 mb-3">Quick Actions</h3>
+                      <button onClick={handleSchedule}
+                        className="w-full bg-green-600 text-white py-2.5 rounded-lg font-medium hover:bg-green-700 transition-colors">
+                        📅 Check Conflicts & Schedule Meeting
                       </button>
-                    ))}
-                  </div>
-                  <textarea value={userInput} onChange={e => setUserInput(e.target.value)}
-                    placeholder="Type yes, no, or any instruction..."
-                    className="w-full border border-gray-200 rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                    rows={3} />
-                  <button onClick={handleReply} disabled={loading || !userInput}
-                    className="mt-3 w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors">
-                    {loading ? '✍️ AI is writing...' : '📨 Generate & Send Reply'}
-                  </button>
-                  {aiReply && (
-                    <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
-                      <p className="text-xs font-semibold text-green-700 mb-2">✅ REPLY SENT</p>
-                      <p className="text-sm text-gray-700 whitespace-pre-wrap">{aiReply}</p>
+                      <p className="text-xs text-gray-400 mt-2 text-center">Creates a real Google Calendar event automatically</p>
                     </div>
                   )}
+
+                  <div className="bg-white rounded-xl shadow-sm p-5">
+                    <h3 className="font-bold text-gray-900 mb-3">Your Response</h3>
+                    <div className="flex gap-2 mb-3 flex-wrap">
+                      {['Yes, confirmed!', 'No, not available', 'Reschedule please', 'Need more info'].map(q => (
+                        <button key={q} onClick={() => setUserInput(q)}
+                          className="text-xs px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-full hover:bg-indigo-100 transition-colors">
+                          {q}
+                        </button>
+                      ))}
+                    </div>
+                    <textarea value={userInput} onChange={e => setUserInput(e.target.value)}
+                      placeholder="Type yes, no, or any instruction..."
+                      className="w-full border border-gray-200 rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                      rows={3} />
+                    <button onClick={handleReply} disabled={loading || !userInput}
+                      className="mt-3 w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+                      {loading ? '✍️ AI is writing...' : '📨 Generate & Send Reply'}
+                    </button>
+                    {aiReply && (
+                      <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
+                        <p className="text-xs font-semibold text-green-700 mb-2">✅ REPLY SENT</p>
+                        <p className="text-sm text-gray-700 whitespace-pre-wrap">{aiReply}</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       )}

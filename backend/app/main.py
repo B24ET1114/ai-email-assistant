@@ -19,6 +19,8 @@ app.add_middleware(
 @app.on_event("startup")
 def startup():
     init_db()
+    Timer(60, auto_fetch_emails).start()
+    print("Auto-fetch started - checking Gmail every 1 minutes!")
 
 class EmailInput(BaseModel):
     sender: str
@@ -323,3 +325,55 @@ def reset_database():
     db.commit()
     db.close()
     return {"message": "Database cleared for fresh demo!"}
+    from threading import Timer
+
+def auto_fetch_emails():
+    try:
+        from app.email_reader import fetch_latest_emails
+        emails = fetch_latest_emails(max_results=5)
+        for email in emails:
+            analysis = analyze_email(email['sender'], email['subject'], email['body'])
+            db = get_db()
+            cursor = db.cursor()
+            cursor.execute("""
+                INSERT INTO emails (sender, subject, body, summary, intent, priority)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                email['sender'],
+                email['subject'],
+                email['body'],
+                analysis.get('summary'),
+                analysis.get('intent'),
+                analysis.get('priority')
+            ))
+            db.commit()
+            db.close()
+        print(f"Auto-fetched {len(emails)} emails")
+    except Exception as e:
+        print(f"Auto-fetch error: {e}")
+    finally:
+        Timer(300, auto_fetch_emails).start()
+        @app.get("/analytics")
+def get_analytics():
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT COUNT(*) FROM emails")
+    total = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM emails WHERE status = 'replied'")
+    replied = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM emails WHERE priority = 'high'")
+    high = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM schedules")
+    meetings = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM emails WHERE intent = 'meeting_request'")
+    meeting_requests = cursor.fetchone()[0]
+    db.close()
+    return {
+        "total_emails": total,
+        "replied": replied,
+        "pending": total - replied,
+        "high_priority": high,
+        "meetings_scheduled": meetings,
+        "meeting_requests": meeting_requests,
+        "response_rate": round((replied / total * 100) if total > 0 else 0, 1)
+    }
