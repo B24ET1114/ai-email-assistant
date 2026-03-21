@@ -632,3 +632,65 @@ def check_ambiguity(email_id: int):
     email = dict(email)
     result = detect_ambiguity(email["body"])
     return result
+@app.get("/emails/{email_id}/suggestions")
+def get_reply_suggestions(email_id: int):
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT * FROM emails WHERE id = ?", (email_id,))
+    email = cursor.fetchone()
+    db.close()
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+    email = dict(email)
+    suggestions = suggest_replies(
+        email["sender"], email["subject"],
+        email["body"], email["intent"]
+    )
+    return {"suggestions": suggestions}
+@app.get("/actions")
+def get_ai_actions():
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("""
+        SELECT * FROM ai_actions
+        ORDER BY created_at DESC
+        LIMIT 20
+    """)
+    actions = [dict(row) for row in cursor.fetchall()]
+    db.close()
+    return actions
+
+@app.post("/actions/log")
+def log_action(action_type: str, email_id: int, description: str, result: str):
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("""
+        INSERT INTO ai_actions (action_type, email_id, description, result)
+        VALUES (?, ?, ?, ?)
+    """, (action_type, email_id, description, result))
+    db.commit()
+    action_id = cursor.lastrowid
+    db.close()
+    return {"action_id": action_id}
+
+@app.post("/actions/{action_id}/undo")
+def undo_action(action_id: int):
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT * FROM ai_actions WHERE id = ?", (action_id,))
+    action = cursor.fetchone()
+    if not action:
+        raise HTTPException(status_code=404, detail="Action not found")
+    action = dict(action)
+    if action["undone"]:
+        raise HTTPException(status_code=400, detail="Already undone")
+    if action["action_type"] == "auto_decline":
+        cursor.execute("UPDATE emails SET status = 'pending' WHERE id = ?", (action["email_id"],))
+    elif action["action_type"] == "schedule":
+        cursor.execute("DELETE FROM schedules WHERE email_id = ?", (action["email_id"],))
+    elif action["action_type"] == "reply":
+        cursor.execute("UPDATE emails SET status = 'pending' WHERE id = ?", (action["email_id"],))
+    cursor.execute("UPDATE ai_actions SET undone = 1, can_undo = 0 WHERE id = ?", (action_id,))
+    db.commit()
+    db.close()
+    return {"message": "Action undone successfully"}

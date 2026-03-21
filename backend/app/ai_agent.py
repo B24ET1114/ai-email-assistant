@@ -164,7 +164,7 @@ Return only valid JSON array, nothing else.
         return json.loads(text.strip())
     except:
         return []
-    def generate_meeting_agenda(subject: str, email_body: str, attendees: str) -> str:
+def generate_meeting_agenda(subject: str, email_body: str, attendees: str) -> str:
     prompt = f"""
 Based on this meeting request email, generate a short professional meeting agenda.
 
@@ -208,3 +208,33 @@ Return only valid JSON, nothing else.
         return json.loads(text.strip())
     except:
         return {"is_ambiguous": False, "reason": "", "clarification_question": ""}
+def suggest_replies(sender: str, subject: str, body: str, intent: str) -> list:
+    prompt = f"""
+Based on this email, suggest 3 smart contextual reply options for the recipient.
+Each option should be short (under 10 words) and action-oriented.
+
+Email from: {sender}
+Subject: {subject}
+Body: {body}
+Intent: {intent}
+
+Return a JSON array of exactly 3 strings — short reply options.
+Example: ["Confirm for Monday 3pm", "Suggest Tuesday instead", "Ask for agenda first"]
+
+Return only valid JSON array, nothing else.
+"""
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7
+    )
+    text = response.choices[0].message.content.strip()
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+    try:
+        suggestions = json.loads(text.strip())
+        return suggestions[:3] if isinstance(suggestions, list) else []
+    except:
+        return ["Yes, confirmed", "Not available", "Need more info"]
