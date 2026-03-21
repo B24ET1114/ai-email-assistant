@@ -185,6 +185,15 @@ export default function App() {
   const notifBg = notifType === 'error' ? 'bg-red-600' : notifType === 'warning' ? 'bg-amber-500' : 'bg-green-600'
   const highCount = emails.filter(e => e.priority === 'high' && e.status === 'pending').length
 
+  const handleReset = async () => {
+    if (!confirm('Clear all emails and schedules for fresh demo?')) return
+    await axios.delete(`${API}/reset`)
+    fetchEmails()
+    fetchSchedules()
+    setSelected(null)
+    showNotification('Database cleared - ready for demo!')
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {notification && (
@@ -281,6 +290,14 @@ export default function App() {
             <button onClick={handleFetchGmail} disabled={fetching}
               className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors">
               {fetching ? 'Fetching...' : '📬 Fetch Latest Emails from Gmail'}
+            </button>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm p-6 mt-4">
+            <h3 className="font-bold text-gray-900 mb-3">Demo Controls</h3>
+            <button onClick={handleReset}
+              className="w-full bg-red-600 text-white py-2.5 rounded-lg font-medium hover:bg-red-700 transition-colors">
+              🗑️ Clear All Data (Fresh Demo Start)
             </button>
           </div>
         </div>

@@ -313,3 +313,13 @@ def save_working_hours(settings: WorkingHoursInput):
     db.commit()
     db.close()
     return {"message": "Settings saved!"}
+@app.delete("/reset")
+def reset_database():
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("DELETE FROM emails")
+    cursor.execute("DELETE FROM schedules")
+    cursor.execute("DELETE FROM replies")
+    db.commit()
+    db.close()
+    return {"message": "Database cleared for fresh demo!"}
