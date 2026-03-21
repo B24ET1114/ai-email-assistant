@@ -65,6 +65,24 @@ export default function App() {
   const [coordination, setCoordination] = useState<any>(null)
   const [digestEmail, setDigestEmail] = useState('')
   const toastTimer = useRef<ReturnType<typeof setTimeout>|null>(null)
+  const [clock, setClock] = useState('')
+
+  useEffect(() => {
+    const updateClock = () => {
+      const now = new Date()
+      const timeStr = now.toLocaleTimeString('en-IN', {
+        timeZone: settings.timezone || 'Asia/Kolkata',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true
+      })
+      setClock(timeStr)
+    }
+    updateClock()
+    const iv = setInterval(updateClock, 1000)
+    return () => clearInterval(iv)
+  }, [settings.timezone])
 
   // Theme colors
   const t = {
@@ -301,7 +319,7 @@ export default function App() {
 
   // ── MAIN APP ──
   return (
-    <div style={{fontFamily:"'Inter','Segoe UI',sans-serif",background:t.bg,minHeight:'100vh',display:'flex',flexDirection:'column',fontSize:13,color:t.text,transition:'background 0.3s'}}>
+    <div style={{fontFamily:"'Inter','Segoe UI',sans-serif",background:t.bg,height:'100vh',display:'flex',flexDirection:'column',fontSize:13,color:t.text,transition:'background 0.3s',overflow:'hidden'}}>
 
       {toast && (
         <div style={{position:'fixed',top:20,right:20,zIndex:999,background:tc2,color:'#fff',padding:'10px 18px',borderRadius:10,fontSize:13,fontWeight:500,boxShadow:'0 4px 20px rgba(0,0,0,0.15)',maxWidth:320}}>
@@ -363,11 +381,17 @@ export default function App() {
           {/* Header */}
           <header style={{background:t.header,borderBottom:`1px solid ${t.border}`,padding:'12px 24px',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0,transition:'background 0.3s'}}>
             <div style={{display:'flex',alignItems:'center',gap:16}}>
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <WeatherIcon type={weather.weather_type} tod={weather.time_of_day} />
-                <div>
-                  <div style={{fontSize:14,fontWeight:600,color:t.text,lineHeight:1.3}}>{weather.greeting}, {settings.name}</div>
-                  <div style={{fontSize:11,color:t.muted,lineHeight:1.3}}>{weather.temp_c}°C · {weather.weather_desc||'Loading...'} · {settings.start}–{settings.end}</div>
+              <div style={{display:'flex',alignItems:'center',gap:16}}>
+                <div style={{display:'flex',alignItems:'center',gap:10}}>
+                  <WeatherIcon type={weather.weather_type} tod={weather.time_of_day} />
+                  <div>
+                    <div style={{fontSize:14,fontWeight:600,color:t.text,lineHeight:1.3}}>{weather.greeting}, {settings.name}</div>
+                    <div style={{fontSize:11,color:t.muted,lineHeight:1.3}}>{weather.temp_c}°C · {weather.weather_desc||'Loading...'} · {settings.start}–{settings.end}</div>
+                  </div>
+                </div>
+                <div style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'6px 14px',background: dark?'#0f172a':'#f8f9fb',borderRadius:10,border:`1px solid ${t.border}`,minWidth:90}}>
+                  <div style={{fontSize:15,fontWeight:700,color:t.text,lineHeight:1.2,fontVariantNumeric:'tabular-nums'}}>{clock}</div>
+                  <div style={{fontSize:10,color:t.muted,lineHeight:1.3}}>{settings.timezone?.split('/')[1]?.replace('_',' ') || 'IST'}</div>
                 </div>
               </div>
               {weather.alert && (
