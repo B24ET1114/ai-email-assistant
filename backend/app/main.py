@@ -2,8 +2,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from app.database import init_db, get_db
-from app.ai_agent import analyze_email, draft_reply, handle_conflict
+from app.ai_agent import analyze_email, draft_reply, handle_conflict, summarize_thread
+from app.calendar_service import check_conflict, save_schedule, get_all_schedules
 import json
+import re
 
 app = FastAPI(title="AI Email Assistant")
 
@@ -26,6 +28,18 @@ class EmailInput(BaseModel):
 class ReplyInput(BaseModel):
     email_id: int
     user_input: str
+
+class ScheduleInput(BaseModel):
+    email_id: int
+    title: str
+    start_time: str
+    attendees: str
+
+class WorkingHoursInput(BaseModel):
+    start: str
+    end: str
+    timezone: str
+    name: str
 
 @app.get("/")
 def root():
@@ -50,10 +64,7 @@ def receive_email(email: EmailInput):
     db.commit()
     email_id = cursor.lastrowid
     db.close()
-    return {
-        "email_id": email_id,
-        "analysis": analysis
-    }
+    return {"email_id": email_id, "analysis": analysis}
 
 @app.get("/emails")
 def get_emails():
@@ -63,6 +74,7 @@ def get_emails():
     emails = [dict(row) for row in cursor.fetchall()]
     db.close()
     return emails
+
 @app.get("/emails/priority")
 def get_priority_emails():
     db = get_db()
@@ -81,16 +93,26 @@ def get_priority_emails():
     db.close()
     return emails
 
-@app.get("/emails/{email_id}")
-def get_email(email_id: int):
+@app.get("/emails/thread/{sender}")
+def get_thread_summary(sender: str):
     db = get_db()
     cursor = db.cursor()
-    cursor.execute("SELECT * FROM emails WHERE id = ?", (email_id,))
-    email = cursor.fetchone()
+    cursor.execute("""
+        SELECT * FROM emails 
+        WHERE sender = ? 
+        ORDER BY received_at ASC
+    """, (sender,))
+    emails = [dict(row) for row in cursor.fetchall()]
     db.close()
-    if not email:
-        raise HTTPException(status_code=404, detail="Email not found")
-    return dict(email)
+    if not emails:
+        raise HTTPException(status_code=404, detail="No emails found from this sender")
+    if len(emails) == 1:
+        return {"summary": emails[0]["summary"], "email_count": 1}
+    summary = summarize_thread(emails)
+    return {"summary": summary, "email_count": len(emails), "sender": sender}
+
+@app.get("/emails/{email_id}")
+def get_email(email_id: int):
     db = get_db()
     cursor = db.cursor()
     cursor.execute("SELECT * FROM emails WHERE id = ?", (email_id,))
@@ -109,18 +131,31 @@ def reply_to_email(reply: ReplyInput):
     if not email:
         raise HTTPException(status_code=404, detail="Email not found")
     email = dict(email)
+
     ai_reply = draft_reply(
         sender=email["sender"],
         original_email=email["body"],
         user_input=reply.user_input
     )
+
+    # Actually send the email via Gmail
+    try:
+        from app.email_reader import send_email
+        email_match = re.search(r'<(.+?)>', email["sender"])
+        to_address = email_match.group(1) if email_match else email["sender"]
+        send_email(
+            to=to_address,
+            subject=f"Re: {email['subject']}",
+            body=ai_reply
+        )
+    except Exception as e:
+        print(f"Email send error: {e}")
+
     cursor.execute("""
         INSERT INTO replies (email_id, user_input, ai_reply)
         VALUES (?, ?, ?)
     """, (reply.email_id, reply.user_input, ai_reply))
-    cursor.execute("""
-        UPDATE emails SET status = 'replied' WHERE id = ?
-    """, (reply.email_id,))
+    cursor.execute("UPDATE emails SET status = 'replied' WHERE id = ?", (reply.email_id,))
     db.commit()
     db.close()
     return {"reply": ai_reply}
@@ -133,13 +168,6 @@ def update_status(email_id: int, status: str):
     db.commit()
     db.close()
     return {"updated": True}
-from app.calendar_service import check_conflict, save_schedule, get_all_schedules
-
-class ScheduleInput(BaseModel):
-    email_id: int
-    title: str
-    start_time: str
-    attendees: str
 
 @app.post("/schedule/check")
 def check_schedule_conflict(time_str: str):
@@ -158,8 +186,10 @@ def create_schedule(schedule: ScheduleInput):
 @app.get("/schedule")
 def get_schedules():
     return get_all_schedules()
+
 @app.post("/emails/simulate")
 def simulate_incoming_email():
+    import random
     test_emails = [
         {
             "sender": "client@business.com",
@@ -167,7 +197,7 @@ def simulate_incoming_email():
             "body": "Hi, I need to urgently discuss the contract terms. Can we meet today at 5pm? This is time sensitive."
         },
         {
-            "sender": "teammate@company.com", 
+            "sender": "teammate@company.com",
             "subject": "Quick Sync",
             "body": "Hey, can we have a quick sync tomorrow at 11am to discuss the project progress?"
         },
@@ -175,9 +205,18 @@ def simulate_incoming_email():
             "sender": "hr@company.com",
             "subject": "Performance Review",
             "body": "Hi, your performance review is scheduled for Friday at 2pm. Please confirm your availability."
+        },
+        {
+            "sender": "investor@venture.com",
+            "subject": "Investment Discussion",
+            "body": "Hello, we are interested in your project. Can we schedule a call this week at 3pm to discuss further?"
+        },
+        {
+            "sender": "professor@university.com",
+            "subject": "Project Deadline Reminder",
+            "body": "This is a reminder that your project submission is due next Monday. Please confirm you are on track."
         }
     ]
-    import random
     email = random.choice(test_emails)
     analysis = analyze_email(email["sender"], email["subject"], email["body"])
     db = get_db()
@@ -196,112 +235,11 @@ def simulate_incoming_email():
     db.commit()
     db.close()
     return {"message": "Simulated email received!", "email": email}
-from app.ai_agent import analyze_email, draft_reply, handle_conflict, summarize_thread
-
-@app.get("/emails/thread/{sender}")
-def get_thread_summary(sender: str):
-    db = get_db()
-    cursor = db.cursor()
-    cursor.execute("""
-        SELECT * FROM emails 
-        WHERE sender = ? 
-        ORDER BY received_at ASC
-    """, (sender,))
-    emails = [dict(row) for row in cursor.fetchall()]
-    db.close()
-    
-    if not emails:
-        raise HTTPException(status_code=404, detail="No emails found from this sender")
-    
-    if len(emails) == 1:
-        return {"summary": emails[0]["summary"], "email_count": 1}
-    
-    summary = summarize_thread(emails)
-    return {
-        "summary": summary,
-        "email_count": len(emails),
-        "sender": sender
-    }
-def get_priority_emails():
-    db = get_db()
-    cursor = db.cursor()
-    cursor.execute("""
-        SELECT * FROM emails 
-        ORDER BY 
-            CASE priority 
-                WHEN 'high' THEN 1 
-                WHEN 'medium' THEN 2 
-                WHEN 'low' THEN 3 
-            END,
-            received_at DESC
-    """)
-    emails = [dict(row) for row in cursor.fetchall()]
-    db.close()
-    return emails
-
-@app.get("/settings/working-hours")
-def get_working_hours():
-    return {
-        "start": "09:00",
-        "end": "18:00",
-        "timezone": "Asia/Kolkata",
-        "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-    }
-@app.get("/emails/priority")
-def get_priority_emails():
-    db = get_db()
-    cursor = db.cursor()
-    cursor.execute("""
-        SELECT * FROM emails 
-        ORDER BY 
-            CASE priority 
-                WHEN 'high' THEN 1 
-                WHEN 'medium' THEN 2 
-                WHEN 'low' THEN 3 
-            END,
-            received_at DESC
-    """)
-    emails = [dict(row) for row in cursor.fetchall()]
-    db.close()
-    return emails
-
-@app.get("/settings/working-hours")
-def get_working_hours():
-    return {
-        "start": "09:00",
-        "end": "18:00",
-        "timezone": "Asia/Kolkata",
-        "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-    }
-class Settings(BaseModel):
-    name: str
-    email: str
-    working_hours_start: str
-    working_hours_end: str
-    timezone: str
-
-app_settings = {
-    "name": "Pranav",
-    "email": "pranavkelapure2024.etc@mmcoe.edu.in",
-    "working_hours_start": "09:00",
-    "working_hours_end": "18:00",
-    "timezone": "Asia/Kolkata"
-}
-
-@app.get("/settings")
-def get_settings():
-    return app_settings
-
-@app.post("/settings")
-def update_settings(settings: Settings):
-    global app_settings
-    app_settings = settings.dict()
-    return {"message": "Settings updated!", "settings": app_settings}
-from app.email_reader import fetch_latest_emails, send_email, create_calendar_event
 
 @app.get("/gmail/fetch")
 def fetch_gmail():
     try:
+        from app.email_reader import fetch_latest_emails
         emails = fetch_latest_emails(max_results=10)
         saved = []
         for email in emails:
@@ -309,8 +247,7 @@ def fetch_gmail():
             db = get_db()
             cursor = db.cursor()
             cursor.execute("""
-                INSERT OR IGNORE INTO emails 
-                (sender, subject, body, summary, intent, priority)
+                INSERT INTO emails (sender, subject, body, summary, intent, priority)
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (
                 email['sender'],
@@ -335,3 +272,44 @@ def gmail_auth():
         return {"status": "Gmail connected successfully!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/settings/working-hours")
+def get_working_hours():
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        cursor.execute("SELECT key, value FROM settings")
+        rows = dict(cursor.fetchall())
+        db.close()
+        return {
+            "start": rows.get("start", "09:00"),
+            "end": rows.get("end", "18:00"),
+            "timezone": rows.get("timezone", "Asia/Kolkata"),
+            "name": rows.get("name", "User")
+        }
+    except:
+        db.close()
+        return {
+            "start": "09:00",
+            "end": "18:00",
+            "timezone": "Asia/Kolkata",
+            "name": "User"
+        }
+
+@app.post("/settings/working-hours")
+def save_working_hours(settings: WorkingHoursInput):
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+    cursor.execute("INSERT OR REPLACE INTO settings VALUES ('start', ?)", (settings.start,))
+    cursor.execute("INSERT OR REPLACE INTO settings VALUES ('end', ?)", (settings.end,))
+    cursor.execute("INSERT OR REPLACE INTO settings VALUES ('timezone', ?)", (settings.timezone,))
+    cursor.execute("INSERT OR REPLACE INTO settings VALUES ('name', ?)", (settings.name,))
+    db.commit()
+    db.close()
+    return {"message": "Settings saved!"}
