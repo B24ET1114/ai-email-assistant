@@ -14,7 +14,6 @@ interface Email {
   status: string
   received_at: string
 }
-
 interface Schedule {
   id: number
   email_id: number
@@ -24,286 +23,224 @@ interface Schedule {
   attendees: string
   calendar_event_id: string
 }
+interface Settings { start: string; end: string; timezone: string; name: string }
+interface Analytics { total_emails: number; replied: number; pending: number; high_priority: number; meetings_scheduled: number; response_rate: number }
+interface Weather { greeting: string; time_of_day: string; temp_c: string; weather_desc: string; weather_type: string; humidity: string; suggestion: string; alert: boolean }
 
-interface Settings {
-  start: string
-  end: string
-  timezone: string
-  name: string
+function WeatherIcon({ type, tod }: { type: string; tod: string }) {
+  const night = tod === 'night'
+  const base = "transition-all duration-500"
+  if (type === 'storm')  return <span className={base} style={{fontSize:20}}>⛈️</span>
+  if (type === 'rainy')  return <span className={base} style={{fontSize:20}}>{night ? '🌧️' : '🌦️'}</span>
+  if (type === 'cloudy') return <span className={base} style={{fontSize:20}}>{night ? '☁️' : '⛅'}</span>
+  if (type === 'foggy')  return <span className={base} style={{fontSize:20}}>🌫️</span>
+  if (type === 'snow')   return <span className={base} style={{fontSize:20}}>❄️</span>
+  if (night)             return <span className={base} style={{fontSize:20}}>🌙</span>
+  return <span className={base} style={{fontSize:20}}>☀️</span>
 }
 
-interface Analytics {
-  total_emails: number
-  replied: number
-  pending: number
-  high_priority: number
-  meetings_scheduled: number
-  response_rate: number
+const P_COLOR: Record<string, {pill:string; dot:string}> = {
+  high:   { pill: 'bg-red-50 text-red-700 ring-1 ring-red-200',         dot: 'bg-red-500' },
+  medium: { pill: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200',   dot: 'bg-amber-400' },
+  low:    { pill: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200', dot: 'bg-emerald-500' },
 }
-
-interface Weather {
-  greeting: string
-  time_of_day: string
-  temp_c: string
-  weather_desc: string
-  weather_type: string
-  humidity: string
-  suggestion: string
-  alert: boolean
-}
-
-function WeatherIcon({ type, timeOfDay }: { type: string; timeOfDay: string }) {
-  const isNight = timeOfDay === 'night'
-  if (type === 'storm') return <span className="text-2xl animate-pulse">⛈️</span>
-  if (type === 'rainy' && isNight) return <span className="text-2xl animate-bounce" style={{ animationDuration: '2s' }}>🌧️</span>
-  if (type === 'rainy') return <span className="text-2xl animate-bounce" style={{ animationDuration: '2s' }}>🌦️</span>
-  if (type === 'cloudy' && isNight) return <span className="text-2xl">☁️</span>
-  if (type === 'cloudy') return <span className="text-2xl">⛅</span>
-  if (type === 'foggy') return <span className="text-2xl animate-pulse">🌫️</span>
-  if (type === 'snow') return <span className="text-2xl animate-bounce" style={{ animationDuration: '3s' }}>❄️</span>
-  if (isNight) return <span className="text-2xl animate-pulse" style={{ animationDuration: '3s' }}>🌙</span>
-  return <span className="text-2xl animate-spin" style={{ animationDuration: '10s' }}>☀️</span>
+const I_COLOR: Record<string, {label:string; color:string}> = {
+  meeting_request: { label:'Meeting',   color:'text-blue-600' },
+  follow_up:       { label:'Follow-up', color:'text-indigo-600' },
+  conflict:        { label:'Conflict',  color:'text-rose-600' },
+  general:         { label:'General',   color:'text-slate-500' },
 }
 
 export default function App() {
-  const [emails, setEmails] = useState<Email[]>([])
-  const [schedules, setSchedules] = useState<Schedule[]>([])
-  const [selected, setSelected] = useState<Email | null>(null)
-  const [userInput, setUserInput] = useState('')
-  const [aiReply, setAiReply] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [fetching, setFetching] = useState(false)
-  const [view, setView] = useState<'inbox' | 'schedule' | 'settings'>('inbox')
-  const [toast, setToast] = useState<{ msg: string; type: 'ok' | 'err' | 'warn' } | null>(null)
-  const [settings, setSettings] = useState<Settings>({ start: '09:00', end: '18:00', timezone: 'Asia/Kolkata', name: 'User' })
-  const [settingsForm, setSettingsForm] = useState<Settings>({ start: '09:00', end: '18:00', timezone: 'Asia/Kolkata', name: 'User' })
-  const [analytics, setAnalytics] = useState<Analytics>({ total_emails: 0, replied: 0, pending: 0, high_priority: 0, meetings_scheduled: 0, response_rate: 0 })
-  const [weather, setWeather] = useState<Weather>({
-    greeting: 'Hello',
-    time_of_day: 'morning',
-    temp_c: '--',
-    weather_desc: '',
-    weather_type: 'sunny',
-    humidity: '--',
-    suggestion: '',
-    alert: false
-  })
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [emails, setEmails]           = useState<Email[]>([])
+  const [schedules, setSchedules]     = useState<Schedule[]>([])
+  const [selected, setSelected]       = useState<Email | null>(null)
+  const [userInput, setUserInput]     = useState('')
+  const [aiReply, setAiReply]         = useState('')
+  const [loading, setLoading]         = useState(false)
+  const [fetching, setFetching]       = useState(false)
+  const [view, setView]               = useState<'inbox'|'schedule'|'settings'>('inbox')
+  const [toast, setToast]             = useState<{msg:string;type:'ok'|'err'|'warn'}|null>(null)
+  const [settings, setSettings]       = useState<Settings>({start:'09:00',end:'18:00',timezone:'Asia/Kolkata',name:'User'})
+  const [settingsForm, setSettingsForm] = useState<Settings>({start:'09:00',end:'18:00',timezone:'Asia/Kolkata',name:'User'})
+  const [analytics, setAnalytics]     = useState<Analytics>({total_emails:0,replied:0,pending:0,high_priority:0,meetings_scheduled:0,response_rate:0})
+  const [weather, setWeather]         = useState<Weather>({greeting:'Good morning',time_of_day:'morning',temp_c:'--',weather_desc:'',weather_type:'sunny',humidity:'--',suggestion:'',alert:false})
+  const timer = useRef<ReturnType<typeof setTimeout>|null>(null)
 
   useEffect(() => {
-    fetchAll()
-    fetchSettings()
-    fetchWeather()
+    fetchAll(); fetchSettings(); fetchWeather()
     const iv = setInterval(() => { fetchAll(); fetchWeather() }, 60000)
     return () => clearInterval(iv)
   }, [])
 
-  const fetchAll = () => { fetchEmails(); fetchSchedules(); fetchAnalytics() }
+  const fetchAll = () => { fe(); fs(); fa() }
+  const fe = async () => { try { const r = await axios.get(`${API}/emails/priority`); setEmails(r.data) } catch {} }
+  const fs = async () => { try { const r = await axios.get(`${API}/schedule`); setSchedules(r.data) } catch {} }
+  const fetchSettings = async () => { try { const r = await axios.get(`${API}/settings/working-hours`); setSettings(r.data); setSettingsForm(r.data) } catch {} }
+  const fa = async () => { try { const r = await axios.get(`${API}/analytics`); setAnalytics(r.data) } catch {} }
+  const fetchWeather = async () => { try { const r = await axios.get(`${API}/weather`); setWeather(r.data) } catch {} }
 
-  const fetchEmails = async () => {
-    try { const r = await axios.get(`${API}/emails/priority`); setEmails(r.data) } catch {}
-  }
-  const fetchSchedules = async () => {
-    try { const r = await axios.get(`${API}/schedule`); setSchedules(r.data) } catch {}
-  }
-  const fetchSettings = async () => {
-    try { const r = await axios.get(`${API}/settings/working-hours`); setSettings(r.data); setSettingsForm(r.data) } catch {}
-  }
-  const fetchAnalytics = async () => {
-    try { const r = await axios.get(`${API}/analytics`); setAnalytics(r.data) } catch {}
-  }
-  const fetchWeather = async () => {
-    try { const r = await axios.get(`${API}/weather`); setWeather(r.data) } catch {}
-  }
-
-  const notify = (msg: string, type: 'ok' | 'err' | 'warn' = 'ok') => {
-    if (toastTimer.current) clearTimeout(toastTimer.current)
-    setToast({ msg, type })
-    toastTimer.current = setTimeout(() => setToast(null), 5000)
+  const notify = (msg: string, type: 'ok'|'err'|'warn' = 'ok') => {
+    if (timer.current) clearTimeout(timer.current)
+    setToast({msg, type})
+    timer.current = setTimeout(() => setToast(null), 5000)
   }
 
   const handleReply = async () => {
     if (!selected || !userInput) return
     setLoading(true)
     try {
-      const r = await axios.post(`${API}/emails/reply`, { email_id: selected.id, user_input: userInput })
-      setAiReply(r.data.reply); notify('Reply sent!'); fetchEmails(); fetchAnalytics()
+      const r = await axios.post(`${API}/emails/reply`, {email_id: selected.id, user_input: userInput})
+      setAiReply(r.data.reply); notify('Reply sent successfully'); fe(); fa()
     } catch { notify('Failed to send reply', 'err') }
     setLoading(false)
   }
 
   const handleSchedule = async () => {
     if (!selected) return
-    const timeSlot = selected.body.match(/\d{1,2}(am|pm|:\d{2})/i)?.[0] || 'tomorrow 3pm'
-    const cr = await axios.post(`${API}/schedule/check?time_str=${encodeURIComponent(timeSlot)}`)
+    const t = selected.body.match(/\d{1,2}(am|pm|:\d{2})/i)?.[0] || 'tomorrow 3pm'
+    const cr = await axios.post(`${API}/schedule/check?time_str=${encodeURIComponent(t)}`)
     if (cr.data.conflict) {
-      notify('Conflict detected! Auto-declining...', 'warn')
-      await axios.post(`${API}/emails/reply`, { email_id: selected.id, user_input: 'decline politely due to scheduling conflict, suggest another time' })
-      fetchEmails()
+      notify('Scheduling conflict — auto-declining request', 'warn')
+      await axios.post(`${API}/emails/reply`, {email_id: selected.id, user_input: 'decline politely due to scheduling conflict, suggest another time'})
+      fe()
     } else {
-      await axios.post(`${API}/schedule/save`, { email_id: selected.id, title: selected.subject, start_time: timeSlot, attendees: selected.sender })
-      notify('Meeting scheduled + Calendar event created!'); fetchSchedules(); fetchAnalytics()
+      await axios.post(`${API}/schedule/save`, {email_id: selected.id, title: selected.subject, start_time: t, attendees: selected.sender})
+      notify('Meeting scheduled · Calendar event created'); fs(); fa()
     }
   }
 
-  const handleSimulate = async () => {
-    await axios.post(`${API}/emails/simulate`); fetchEmails(); fetchAnalytics(); notify('New email arrived!')
-  }
-
+  const handleSimulate   = async () => { await axios.post(`${API}/emails/simulate`); fe(); fa(); notify('Test email added to inbox') }
   const handleFetchGmail = async () => {
     setFetching(true)
-    try {
-      const r = await axios.get(`${API}/gmail/fetch`); fetchEmails(); fetchAnalytics()
-      notify(`Fetched ${r.data.fetched} emails from Gmail`)
-    } catch { notify('Gmail fetch failed', 'err') }
+    try { const r = await axios.get(`${API}/gmail/fetch`); fe(); fa(); notify(`${r.data.fetched} emails synced from Gmail`) }
+    catch { notify('Gmail sync failed', 'err') }
     setFetching(false)
   }
-
-  const handleThreadSummary = async () => {
+  const handleThread = async () => {
     if (!selected) return
-    try {
-      const r = await axios.get(`${API}/emails/thread/${encodeURIComponent(selected.sender)}`)
-      notify(`Thread (${r.data.email_count} emails): ${r.data.summary}`)
-    } catch { notify('No thread found', 'err') }
+    try { const r = await axios.get(`${API}/emails/thread/${encodeURIComponent(selected.sender)}`); notify(`Thread · ${r.data.email_count} emails: ${r.data.summary}`) }
+    catch { notify('Thread not found', 'err') }
   }
-
-  const handleSaveSettings = async () => {
-    try { await axios.post(`${API}/settings/working-hours`, settingsForm); setSettings(settingsForm); notify('Settings saved!') }
-    catch { notify('Save failed', 'err') }
+  const handleSave = async () => {
+    try { await axios.post(`${API}/settings/working-hours`, settingsForm); setSettings(settingsForm); notify('Settings updated') }
+    catch { notify('Update failed', 'err') }
   }
-
   const handleReset = async () => {
-    if (!confirm('Clear all data for a fresh demo?')) return
-    await axios.delete(`${API}/reset`); fetchAll(); setSelected(null); notify('Cleared — ready for demo!')
+    if (!confirm('Clear all data and start fresh?')) return
+    await axios.delete(`${API}/reset`); fetchAll(); setSelected(null); notify('Database cleared')
   }
 
   const highCount = emails.filter(e => e.priority === 'high' && e.status === 'pending').length
+  const tc = toast?.type === 'err' ? '#dc2626' : toast?.type === 'warn' ? '#d97706' : '#059669'
 
-  const priorityBadge = (p: string) => {
-    if (p === 'high') return 'bg-red-900/60 text-red-400 border-red-800/50'
-    if (p === 'medium') return 'bg-amber-900/60 text-amber-400 border-amber-800/50'
-    return 'bg-emerald-900/60 text-emerald-400 border-emerald-800/50'
-  }
-
-  const intentBadge = (i: string) => {
-    if (i === 'meeting_request') return { label: 'Meeting', color: 'text-violet-400' }
-    if (i === 'follow_up') return { label: 'Follow-up', color: 'text-sky-400' }
-    if (i === 'conflict') return { label: 'Conflict', color: 'text-rose-400' }
-    return { label: 'General', color: 'text-slate-400' }
-  }
-
-  const toastBg = toast?.type === 'err' ? 'bg-rose-600' : toast?.type === 'warn' ? 'bg-amber-500' : 'bg-emerald-600'
+  const navItems = [
+    { id: 'inbox',    label: 'Inbox',    icon: '✉', badge: emails.length, alert: highCount > 0 },
+    { id: 'schedule', label: 'Schedule', icon: '◷', badge: schedules.length, alert: false },
+    { id: 'settings', label: 'Settings', icon: '◈', badge: 0, alert: false },
+  ]
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col text-sm">
+    <div style={{fontFamily:"'Inter','Segoe UI',sans-serif",background:'#f8f9fb',minHeight:'100vh',display:'flex',flexDirection:'column',fontSize:13,color:'#1a1d23'}}>
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-5 right-5 z-50 ${toastBg} text-white text-sm px-5 py-3 rounded-2xl shadow-2xl max-w-xs border border-white/10`}>
+        <div style={{position:'fixed',top:20,right:20,zIndex:999,background:tc,color:'#fff',padding:'10px 18px',borderRadius:10,fontSize:13,fontWeight:500,boxShadow:'0 4px 20px rgba(0,0,0,0.15)',maxWidth:320,transition:'all 0.3s'}}>
           {toast.msg}
         </div>
       )}
 
-      <div className="flex flex-1 overflow-hidden">
+      <div style={{display:'flex',flex:1,overflow:'hidden'}}>
 
         {/* ── Sidebar ── */}
-        <aside className="w-56 bg-slate-900 border-r border-slate-800 flex flex-col py-5 px-3 flex-shrink-0">
+        <aside style={{width:220,background:'#ffffff',borderRight:'1px solid #e8eaed',display:'flex',flexDirection:'column',padding:'20px 12px',flexShrink:0}}>
 
-          {/* Logo */}
-          <div className="flex items-center gap-3 px-2 mb-8">
-            <div className="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">AI</div>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-white leading-tight">Email Assistant</p>
-              <p className="text-xs text-slate-500 leading-tight">Autonomous Agent</p>
+          {/* Brand */}
+          <div style={{display:'flex',alignItems:'center',gap:10,padding:'0 8px',marginBottom:28}}>
+            <div style={{width:32,height:32,borderRadius:8,background:'#1d4ed8',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:12,flexShrink:0}}>AI</div>
+            <div>
+              <div style={{fontSize:13,fontWeight:600,color:'#1a1d23',lineHeight:1.2}}>Mail Assistant</div>
+              <div style={{fontSize:11,color:'#9ca3af',lineHeight:1.2}}>Autonomous Agent</div>
             </div>
           </div>
 
           {/* Nav */}
-          <nav className="flex flex-col gap-1">
-            {[
-              { id: 'inbox',    label: 'Inbox',    sub: `${emails.length} emails`,      icon: '📥' },
-              { id: 'schedule', label: 'Schedule',  sub: `${schedules.length} meetings`, icon: '📅' },
-              { id: 'settings', label: 'Settings',  sub: 'Config & connections',         icon: '⚙️' },
-            ].map(tab => (
-              <button key={tab.id} onClick={() => setView(tab.id as typeof view)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-left
-                  ${view === tab.id ? 'bg-violet-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-                <span className="text-base w-5 text-center flex-shrink-0">{tab.icon}</span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium leading-none">{tab.label}</span>
-                    {tab.id === 'inbox' && highCount > 0 && (
-                      <span className="bg-rose-500 text-white text-xs rounded-full px-1.5 py-0.5 leading-none">{highCount}</span>
-                    )}
-                  </div>
-                  <p className={`text-xs mt-0.5 leading-none ${view === tab.id ? 'text-violet-200' : 'text-slate-600'}`}>{tab.sub}</p>
-                </div>
-              </button>
-            ))}
+          <nav style={{display:'flex',flexDirection:'column',gap:2}}>
+            {navItems.map(tab => {
+              const active = view === tab.id
+              return (
+                <button key={tab.id} onClick={() => setView(tab.id as typeof view)}
+                  style={{display:'flex',alignItems:'center',gap:10,padding:'9px 10px',borderRadius:8,border:'none',cursor:'pointer',textAlign:'left',transition:'background 0.15s',background: active ? '#eff6ff' : 'transparent',color: active ? '#1d4ed8' : '#6b7280',width:'100%'}}>
+                  <span style={{fontSize:15,width:18,textAlign:'center',flexShrink:0}}>{tab.icon}</span>
+                  <span style={{fontSize:13,fontWeight: active ? 600 : 400,flex:1}}>{tab.label}</span>
+                  {tab.badge > 0 && (
+                    <span style={{fontSize:11,background: tab.alert ? '#fee2e2' : '#f3f4f6',color: tab.alert ? '#dc2626' : '#6b7280',padding:'1px 7px',borderRadius:10,fontWeight:600}}>{tab.badge}</span>
+                  )}
+                </button>
+              )
+            })}
           </nav>
 
-          <div className="flex-1" />
+          <div style={{flex:1}} />
 
-          {/* Bottom Actions */}
-          <div className="flex flex-col gap-1 border-t border-slate-800 pt-3">
+          {/* Actions */}
+          <div style={{borderTop:'1px solid #f3f4f6',paddingTop:12,display:'flex',flexDirection:'column',gap:2}}>
             <button onClick={handleSimulate}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all text-left">
-              <span className="text-base w-5 text-center flex-shrink-0">✉️</span>
-              <div className="min-w-0">
-                <p className="text-sm font-medium leading-none">Simulate Email</p>
-                <p className="text-xs text-slate-500 mt-0.5 leading-none">Add test email</p>
+              style={{display:'flex',alignItems:'center',gap:10,padding:'9px 10px',borderRadius:8,border:'none',cursor:'pointer',textAlign:'left',background:'transparent',color:'#6b7280',width:'100%',transition:'background 0.15s'}}
+              onMouseEnter={e=>(e.currentTarget.style.background='#f9fafb')}
+              onMouseLeave={e=>(e.currentTarget.style.background='transparent')}>
+              <span style={{fontSize:15,width:18,textAlign:'center',flexShrink:0}}>＋</span>
+              <div>
+                <div style={{fontSize:13,fontWeight:500,lineHeight:1.2,color:'#374151'}}>Simulate Email</div>
+                <div style={{fontSize:11,color:'#9ca3af',lineHeight:1.4}}>Add test message</div>
               </div>
             </button>
             <button onClick={handleFetchGmail} disabled={fetching}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all text-left disabled:opacity-40">
-              <span className="text-base w-5 text-center flex-shrink-0">📬</span>
-              <div className="min-w-0">
-                <p className="text-sm font-medium leading-none">{fetching ? 'Fetching...' : 'Fetch Gmail'}</p>
-                <p className="text-xs text-slate-500 mt-0.5 leading-none">Sync real emails</p>
+              style={{display:'flex',alignItems:'center',gap:10,padding:'9px 10px',borderRadius:8,border:'none',cursor:'pointer',textAlign:'left',background:'transparent',color:'#6b7280',width:'100%',opacity: fetching ? 0.5 : 1,transition:'background 0.15s'}}
+              onMouseEnter={e=>(e.currentTarget.style.background='#f9fafb')}
+              onMouseLeave={e=>(e.currentTarget.style.background='transparent')}>
+              <span style={{fontSize:15,width:18,textAlign:'center',flexShrink:0}}>⇩</span>
+              <div>
+                <div style={{fontSize:13,fontWeight:500,lineHeight:1.2,color:'#374151'}}>{fetching ? 'Syncing...' : 'Sync Gmail'}</div>
+                <div style={{fontSize:11,color:'#9ca3af',lineHeight:1.4}}>Fetch real emails</div>
               </div>
             </button>
           </div>
         </aside>
 
         {/* ── Main ── */}
-        <div className="flex flex-1 overflow-hidden flex-col">
+        <div style={{display:'flex',flex:1,overflow:'hidden',flexDirection:'column'}}>
 
-          {/* Top Bar */}
-          <header className="bg-slate-900 border-b border-slate-800 px-6 py-3 flex items-center justify-between flex-shrink-0">
-            <div className="flex items-center gap-4">
-              {/* Greeting + Weather */}
-              <div className="flex items-center gap-3">
-                <WeatherIcon type={weather.weather_type} timeOfDay={weather.time_of_day} />
+          {/* Header */}
+          <header style={{background:'#ffffff',borderBottom:'1px solid #e8eaed',padding:'12px 24px',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+            <div style={{display:'flex',alignItems:'center',gap:16}}>
+              <div style={{display:'flex',alignItems:'center',gap:10}}>
+                <WeatherIcon type={weather.weather_type} tod={weather.time_of_day} />
                 <div>
-                  <p className="text-sm font-semibold text-white leading-tight">
-                    {weather.greeting}, {settings.name}!
-                  </p>
-                  <p className="text-xs text-slate-500 leading-tight">
-                    {weather.temp_c}°C · {weather.weather_desc || 'Loading weather...'} · {settings.start}–{settings.end}
-                  </p>
+                  <div style={{fontSize:14,fontWeight:600,color:'#1a1d23',lineHeight:1.3}}>{weather.greeting}, {settings.name}</div>
+                  <div style={{fontSize:11,color:'#9ca3af',lineHeight:1.3}}>{weather.temp_c}°C · {weather.weather_desc || 'Loading...'} · {settings.start}–{settings.end} IST</div>
                 </div>
               </div>
-              {/* Weather Alert */}
               {weather.alert && (
-                <div className="flex items-center gap-2 bg-amber-900/40 border border-amber-800/50 px-3 py-1.5 rounded-xl">
-                  <span className="text-xs">⚠️</span>
-                  <p className="text-xs text-amber-400 font-medium">{weather.suggestion}</p>
+                <div style={{display:'flex',alignItems:'center',gap:6,background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,padding:'5px 12px'}}>
+                  <span style={{fontSize:12}}>⚠</span>
+                  <span style={{fontSize:12,color:'#92400e',fontWeight:500}}>{weather.suggestion}</span>
                 </div>
               )}
             </div>
 
-            {/* Analytics Pills */}
-            <div className="flex gap-2">
+            {/* Stats */}
+            <div style={{display:'flex',gap:8}}>
               {[
-                { label: 'Total',   val: analytics.total_emails,       color: 'text-slate-300' },
-                { label: 'Replied', val: analytics.replied,             color: 'text-emerald-400' },
-                { label: 'Pending', val: analytics.pending,             color: 'text-amber-400' },
-                { label: 'High',    val: analytics.high_priority,       color: 'text-rose-400' },
-                { label: 'Rate',    val: `${analytics.response_rate}%`, color: 'text-violet-400' },
+                {label:'Emails',  val:analytics.total_emails,       c:'#1d4ed8'},
+                {label:'Replied', val:analytics.replied,             c:'#059669'},
+                {label:'Pending', val:analytics.pending,             c:'#d97706'},
+                {label:'High',    val:analytics.high_priority,       c:'#dc2626'},
+                {label:'Rate',    val:`${analytics.response_rate}%`, c:'#7c3aed'},
               ].map(s => (
-                <div key={s.label} className="text-center px-3 py-1.5 bg-slate-800 rounded-xl border border-slate-700 min-w-[52px]">
-                  <p className={`text-sm font-bold leading-tight ${s.color}`}>{s.val}</p>
-                  <p className="text-xs text-slate-500 leading-tight">{s.label}</p>
+                <div key={s.label} style={{textAlign:'center',padding:'6px 14px',background:'#f8f9fb',borderRadius:8,border:'1px solid #e8eaed',minWidth:58}}>
+                  <div style={{fontSize:15,fontWeight:700,color:s.c,lineHeight:1.2}}>{s.val}</div>
+                  <div style={{fontSize:10,color:'#9ca3af',lineHeight:1.3,marginTop:1}}>{s.label}</div>
                 </div>
               ))}
             </div>
@@ -311,46 +248,44 @@ export default function App() {
 
           {/* ── INBOX ── */}
           {view === 'inbox' && (
-            <div className="flex flex-1 overflow-hidden">
+            <div style={{display:'flex',flex:1,overflow:'hidden'}}>
 
-              {/* Email List */}
-              <div className="w-80 flex-shrink-0 bg-slate-900 border-r border-slate-800 overflow-y-auto">
+              {/* List */}
+              <div style={{width:320,flexShrink:0,background:'#ffffff',borderRight:'1px solid #e8eaed',overflowY:'auto'}}>
                 {highCount > 0 && (
-                  <div className="m-3 px-3 py-2 bg-rose-950/60 border border-rose-800/50 rounded-xl">
-                    <p className="text-xs text-rose-400 font-medium">⚠ {highCount} high priority need attention</p>
+                  <div style={{margin:'12px 12px 4px',padding:'8px 12px',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8}}>
+                    <span style={{fontSize:12,color:'#b91c1c',fontWeight:500}}>⚠ {highCount} high-priority message{highCount > 1 ? 's' : ''} require attention</span>
                   </div>
                 )}
                 {emails.length === 0 && (
-                  <div className="flex flex-col items-center justify-center h-48 text-slate-600">
-                    <p className="text-3xl mb-2">📭</p>
-                    <p className="text-sm font-medium">No emails yet</p>
-                    <p className="text-xs mt-1 text-slate-700">Use Simulate or Fetch Gmail</p>
+                  <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:180,color:'#d1d5db'}}>
+                    <div style={{fontSize:32,marginBottom:8}}>✉</div>
+                    <div style={{fontSize:13,fontWeight:500,color:'#9ca3af'}}>No messages</div>
+                    <div style={{fontSize:11,color:'#d1d5db',marginTop:4}}>Simulate or sync Gmail to begin</div>
                   </div>
                 )}
                 {emails.map(email => {
-                  const intent = intentBadge(email.intent)
-                  const isSelected = selected?.id === email.id
+                  const pc = P_COLOR[email.priority] || P_COLOR.low
+                  const ic = I_COLOR[email.intent] || I_COLOR.general
+                  const active = selected?.id === email.id
                   return (
-                    <div key={email.id}
-                      onClick={() => { setSelected(email); setAiReply(''); setUserInput('') }}
-                      className={`mx-2 my-1 p-3 rounded-xl cursor-pointer transition-all border
-                        ${isSelected
-                          ? 'bg-violet-600/20 border-violet-500/50'
-                          : 'bg-slate-800/40 border-slate-700/40 hover:bg-slate-800 hover:border-slate-600'}`}>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-xs font-semibold text-slate-300 truncate max-w-[150px]">
-                          {email.sender.split('<')[0].replace(/"/g, '').trim()}
+                    <div key={email.id} onClick={() => { setSelected(email); setAiReply(''); setUserInput('') }}
+                      style={{margin:'4px 8px',padding:'11px 12px',borderRadius:8,cursor:'pointer',border: active ? '1px solid #bfdbfe' : '1px solid transparent',background: active ? '#eff6ff' : 'transparent',transition:'all 0.15s'}}
+                      onMouseEnter={e => { if (!active) e.currentTarget.style.background = '#f9fafb' }}
+                      onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}>
+                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
+                        <span style={{fontSize:12,fontWeight:600,color:'#374151',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:160}}>
+                          {email.sender.split('<')[0].replace(/"/g,'').trim()}
                         </span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full border font-medium flex-shrink-0 ml-1 ${priorityBadge(email.priority)}`}>
+                        <span style={{fontSize:11,padding:'2px 8px',borderRadius:20,fontWeight:500,flexShrink:0,marginLeft:6}} className={pc.pill}>
                           {email.priority}
                         </span>
                       </div>
-                      <p className="text-xs text-white font-medium truncate mb-1">{email.subject}</p>
-                      <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed mb-2">{email.summary}</p>
-                      <div className="flex items-center justify-between">
-                        <span className={`text-xs font-medium ${intent.color}`}>{intent.label}</span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium
-                          ${email.status === 'replied' ? 'bg-emerald-900/50 text-emerald-400' : 'bg-slate-700/80 text-slate-400'}`}>
+                      <div style={{fontSize:12,fontWeight:600,color:'#1a1d23',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',marginBottom:4}}>{email.subject}</div>
+                      <div style={{fontSize:11,color:'#6b7280',lineHeight:1.5,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden',marginBottom:6}}>{email.summary}</div>
+                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                        <span style={{fontSize:11,fontWeight:500}} className={ic.color}>{ic.label}</span>
+                        <span style={{fontSize:11,padding:'1px 8px',borderRadius:20,background: email.status==='replied' ? '#dcfce7' : '#f3f4f6',color: email.status==='replied' ? '#15803d' : '#9ca3af',fontWeight:500}}>
                           {email.status}
                         </span>
                       </div>
@@ -359,97 +294,99 @@ export default function App() {
                 })}
               </div>
 
-              {/* Email Detail */}
-              <div className="flex-1 overflow-y-auto bg-slate-950">
+              {/* Detail */}
+              <div style={{flex:1,overflowY:'auto',background:'#f8f9fb'}}>
                 {!selected ? (
-                  <div className="flex flex-col items-center justify-center h-full text-slate-700">
-                    <p className="text-5xl mb-3">👈</p>
-                    <p className="text-base font-medium text-slate-600">Select an email</p>
-                    <p className="text-xs mt-1 text-slate-700">or simulate one from the sidebar</p>
+                  <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',color:'#d1d5db'}}>
+                    <div style={{fontSize:40,marginBottom:12}}>✉</div>
+                    <div style={{fontSize:14,fontWeight:500,color:'#9ca3af'}}>Select a message</div>
+                    <div style={{fontSize:12,color:'#d1d5db',marginTop:4}}>Choose from the list to view details</div>
                   </div>
                 ) : (
-                  <div className="max-w-2xl mx-auto p-6 space-y-4">
+                  <div style={{maxWidth:640,margin:'0 auto',padding:24,display:'flex',flexDirection:'column',gap:16}}>
 
-                    {/* Header Card */}
-                    <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5">
-                      <div className="flex items-start justify-between gap-4 mb-4">
-                        <div className="min-w-0 flex-1">
-                          <h2 className="text-base font-semibold text-white leading-tight mb-1">{selected.subject}</h2>
-                          <p className="text-xs text-slate-400">From: {selected.sender}</p>
+                    {/* Email Card */}
+                    <div style={{background:'#fff',borderRadius:12,border:'1px solid #e8eaed',padding:20}}>
+                      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12,marginBottom:16}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <h2 style={{fontSize:15,fontWeight:700,color:'#1a1d23',lineHeight:1.3,marginBottom:4}}>{selected.subject}</h2>
+                          <div style={{fontSize:12,color:'#6b7280'}}>From: {selected.sender}</div>
                         </div>
-                        <div className="flex gap-2 flex-shrink-0">
-                          <span className={`text-xs px-2.5 py-1 rounded-lg border font-medium ${priorityBadge(selected.priority)}`}>
-                            {selected.priority}
-                          </span>
-                          <span className={`text-xs px-2.5 py-1 rounded-lg border bg-slate-800 border-slate-700 font-medium ${intentBadge(selected.intent).color}`}>
-                            {intentBadge(selected.intent).label}
-                          </span>
+                        <div style={{display:'flex',gap:6,flexShrink:0}}>
+                          {(() => {
+                            const pc = P_COLOR[selected.priority] || P_COLOR.low
+                            const ic = I_COLOR[selected.intent] || I_COLOR.general
+                            return <>
+                              <span style={{fontSize:11,padding:'3px 10px',borderRadius:20,fontWeight:600}} className={pc.pill}>{selected.priority}</span>
+                              <span style={{fontSize:11,padding:'3px 10px',borderRadius:20,fontWeight:600,background:'#f3f4f6',color:'#374151'}} className={ic.color}>{ic.label}</span>
+                            </>
+                          })()}
                         </div>
                       </div>
 
-                      {/* AI Summary */}
-                      <div className="bg-violet-950/40 border border-violet-800/30 rounded-xl p-4 mb-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-xs font-semibold text-violet-400 uppercase tracking-wider">AI Summary</p>
-                          <button onClick={handleThreadSummary}
-                            className="text-xs text-violet-400 hover:text-violet-300 underline underline-offset-2">
-                            View thread
-                          </button>
+                      {/* Summary */}
+                      <div style={{background:'#eff6ff',border:'1px solid #dbeafe',borderRadius:8,padding:14,marginBottom:14}}>
+                        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}}>
+                          <span style={{fontSize:10,fontWeight:700,color:'#1d4ed8',textTransform:'uppercase',letterSpacing:'0.06em'}}>AI Summary</span>
+                          <button onClick={handleThread} style={{fontSize:11,color:'#1d4ed8',background:'none',border:'none',cursor:'pointer',textDecoration:'underline',padding:0}}>View thread</button>
                         </div>
-                        <p className="text-xs text-slate-300 leading-relaxed">{selected.summary}</p>
+                        <p style={{fontSize:12,color:'#1e3a5f',lineHeight:1.6}}>{selected.summary}</p>
                       </div>
 
-                      {/* Original */}
+                      {/* Body */}
                       <div>
-                        <p className="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">Original Email</p>
-                        <p className="text-xs text-slate-400 leading-relaxed whitespace-pre-wrap">{selected.body}</p>
+                        <div style={{fontSize:10,fontWeight:700,color:'#9ca3af',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:8}}>Original Message</div>
+                        <p style={{fontSize:12,color:'#374151',lineHeight:1.7,whiteSpace:'pre-wrap'}}>{selected.body}</p>
                       </div>
                     </div>
 
                     {/* Schedule */}
                     {selected.intent === 'meeting_request' && (
-                      <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5">
-                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Quick Action</p>
+                      <div style={{background:'#fff',borderRadius:12,border:'1px solid #e8eaed',padding:20}}>
+                        <div style={{fontSize:10,fontWeight:700,color:'#9ca3af',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:12}}>Scheduling</div>
                         {weather.alert && (
-                          <div className="flex items-center gap-2 bg-amber-900/30 border border-amber-800/40 rounded-xl px-3 py-2 mb-3">
-                            <span className="text-xs">⚠️</span>
-                            <p className="text-xs text-amber-400">{weather.suggestion}</p>
+                          <div style={{display:'flex',alignItems:'center',gap:8,background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,padding:'8px 12px',marginBottom:12}}>
+                            <span style={{fontSize:12}}>⚠</span>
+                            <span style={{fontSize:12,color:'#92400e'}}>{weather.suggestion}</span>
                           </div>
                         )}
                         <button onClick={handleSchedule}
-                          className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 rounded-xl font-medium transition-all text-sm">
-                          📅 Check Conflicts & Schedule Meeting
+                          style={{width:'100%',background:'#059669',color:'#fff',border:'none',borderRadius:8,padding:'11px 16px',fontSize:13,fontWeight:600,cursor:'pointer',transition:'background 0.15s'}}
+                          onMouseEnter={e=>(e.currentTarget.style.background='#047857')}
+                          onMouseLeave={e=>(e.currentTarget.style.background='#059669')}>
+                          Check Conflicts & Schedule Meeting
                         </button>
-                        <p className="text-xs text-slate-600 text-center mt-2">Creates a real Google Calendar event automatically</p>
+                        <div style={{fontSize:11,color:'#9ca3af',textAlign:'center',marginTop:8}}>Creates a Google Calendar event and sends invites automatically</div>
                       </div>
                     )}
 
                     {/* Reply */}
-                    <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5">
-                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Your Response</p>
-                      <div className="flex gap-2 mb-3 flex-wrap">
-                        {['Yes, confirmed!', 'No, not available', 'Reschedule please', 'Need more info'].map(q => (
+                    <div style={{background:'#fff',borderRadius:12,border:'1px solid #e8eaed',padding:20}}>
+                      <div style={{fontSize:10,fontWeight:700,color:'#9ca3af',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:12}}>Compose Reply</div>
+                      <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap'}}>
+                        {['Yes, confirmed', 'Not available', 'Reschedule', 'Need details'].map(q => (
                           <button key={q} onClick={() => setUserInput(q)}
-                            className={`text-xs px-3 py-1.5 rounded-lg border transition-all
-                              ${userInput === q
-                                ? 'bg-violet-600 text-white border-violet-500'
-                                : 'bg-slate-800 text-slate-400 border-slate-700 hover:border-slate-500 hover:text-white'}`}>
+                            style={{fontSize:12,padding:'6px 14px',borderRadius:20,border: userInput === q ? '1.5px solid #1d4ed8' : '1px solid #e8eaed',background: userInput === q ? '#eff6ff' : '#fff',color: userInput === q ? '#1d4ed8' : '#6b7280',cursor:'pointer',fontWeight: userInput === q ? 600 : 400,transition:'all 0.15s'}}>
                             {q}
                           </button>
                         ))}
                       </div>
                       <textarea value={userInput} onChange={e => setUserInput(e.target.value)}
-                        placeholder="Or type a custom instruction..."
-                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-200 placeholder-slate-600 resize-none focus:outline-none focus:border-violet-500 transition-colors leading-relaxed"
-                        rows={3} />
+                        placeholder="Or type a custom instruction for the AI..."
+                        style={{width:'100%',background:'#f8f9fb',border:'1px solid #e8eaed',borderRadius:8,padding:'12px 14px',fontSize:13,color:'#1a1d23',resize:'none',outline:'none',lineHeight:1.6,boxSizing:'border-box',fontFamily:'inherit',transition:'border 0.15s'}}
+                        rows={3}
+                        onFocus={e=>(e.currentTarget.style.border='1px solid #1d4ed8')}
+                        onBlur={e=>(e.currentTarget.style.border='1px solid #e8eaed')} />
                       <button onClick={handleReply} disabled={loading || !userInput}
-                        className="mt-3 w-full bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white py-2.5 rounded-xl font-medium transition-all text-sm">
-                        {loading ? '✍️ Writing reply...' : '📨 Generate & Send Reply'}
+                        style={{marginTop:10,width:'100%',background: loading || !userInput ? '#9ca3af' : '#1d4ed8',color:'#fff',border:'none',borderRadius:8,padding:'11px 16px',fontSize:13,fontWeight:600,cursor: loading || !userInput ? 'not-allowed' : 'pointer',transition:'background 0.15s'}}
+                        onMouseEnter={e=>{ if(!loading && userInput) e.currentTarget.style.background='#1e40af' }}
+                        onMouseLeave={e=>{ if(!loading && userInput) e.currentTarget.style.background='#1d4ed8' }}>
+                        {loading ? 'Composing reply...' : 'Generate & Send Reply'}
                       </button>
                       {aiReply && (
-                        <div className="mt-4 bg-emerald-950/40 border border-emerald-800/30 rounded-xl p-4">
-                          <p className="text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-2">✅ Reply Sent</p>
-                          <p className="text-xs text-slate-300 whitespace-pre-wrap leading-relaxed">{aiReply}</p>
+                        <div style={{marginTop:14,background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:8,padding:14}}>
+                          <div style={{fontSize:10,fontWeight:700,color:'#15803d',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:8}}>✓ Reply Sent</div>
+                          <p style={{fontSize:12,color:'#14532d',lineHeight:1.7,whiteSpace:'pre-wrap'}}>{aiReply}</p>
                         </div>
                       )}
                     </div>
@@ -461,44 +398,38 @@ export default function App() {
 
           {/* ── SCHEDULE ── */}
           {view === 'schedule' && (
-            <div className="flex-1 p-6 overflow-y-auto">
-              <div className="max-w-2xl mx-auto">
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-base font-semibold text-white">Upcoming Meetings</h2>
-                  <span className="text-xs bg-emerald-900/40 text-emerald-400 border border-emerald-800/40 px-3 py-1.5 rounded-xl font-medium">
-                    ✓ Synced with Google Calendar
-                  </span>
+            <div style={{flex:1,padding:24,overflowY:'auto'}}>
+              <div style={{maxWidth:640,margin:'0 auto'}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20}}>
+                  <h2 style={{fontSize:16,fontWeight:700,color:'#1a1d23'}}>Upcoming Meetings</h2>
+                  <span style={{fontSize:11,background:'#f0fdf4',color:'#15803d',border:'1px solid #bbf7d0',padding:'4px 12px',borderRadius:20,fontWeight:600}}>✓ Google Calendar Synced</span>
                 </div>
                 {weather.alert && (
-                  <div className="flex items-center gap-2 bg-amber-900/30 border border-amber-800/40 rounded-xl px-4 py-3 mb-4">
-                    <span>⚠️</span>
-                    <p className="text-xs text-amber-400 font-medium">{weather.suggestion} — consider rescheduling outdoor meetings</p>
+                  <div style={{display:'flex',alignItems:'center',gap:8,background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,padding:'10px 14px',marginBottom:16}}>
+                    <span style={{fontSize:13}}>⚠</span>
+                    <span style={{fontSize:12,color:'#92400e',fontWeight:500}}>{weather.suggestion} — consider scheduling online meetings</span>
                   </div>
                 )}
                 {schedules.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-48 text-slate-700">
-                    <p className="text-4xl mb-3">📅</p>
-                    <p className="text-sm font-medium text-slate-600">No meetings yet</p>
-                    <p className="text-xs mt-1">Schedule one from an email</p>
+                  <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:160,color:'#d1d5db'}}>
+                    <div style={{fontSize:32,marginBottom:8}}>◷</div>
+                    <div style={{fontSize:13,fontWeight:500,color:'#9ca3af'}}>No meetings scheduled</div>
+                    <div style={{fontSize:11,color:'#d1d5db',marginTop:4}}>Schedule one from an email</div>
                   </div>
                 ) : (
-                  <div className="space-y-3">
+                  <div style={{display:'flex',flexDirection:'column',gap:10}}>
                     {schedules.map(s => (
-                      <div key={s.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between hover:border-slate-700 transition-all">
-                        <div className="min-w-0 flex-1 mr-4">
-                          <h3 className="text-sm font-semibold text-white leading-tight truncate">{s.event_title}</h3>
-                          <p className="text-xs text-slate-500 mt-1">With: {s.attendees}</p>
-                          {s.calendar_event_id && (
-                            <p className="text-xs text-emerald-500 mt-1 font-medium">✓ Google Calendar event created</p>
-                          )}
+                      <div key={s.id} style={{background:'#fff',border:'1px solid #e8eaed',borderRadius:10,padding:'14px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',transition:'border 0.15s'}}
+                        onMouseEnter={e=>(e.currentTarget.style.border='1px solid #bfdbfe')}
+                        onMouseLeave={e=>(e.currentTarget.style.border='1px solid #e8eaed')}>
+                        <div style={{flex:1,minWidth:0,marginRight:16}}>
+                          <div style={{fontSize:13,fontWeight:600,color:'#1a1d23',marginBottom:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.event_title}</div>
+                          <div style={{fontSize:11,color:'#9ca3af'}}>With: {s.attendees}</div>
+                          {s.calendar_event_id && <div style={{fontSize:11,color:'#059669',marginTop:3,fontWeight:500}}>✓ Google Calendar event created</div>}
                         </div>
-                        <div className="text-right flex-shrink-0">
-                          <p className="text-sm font-semibold text-violet-400 leading-tight">
-                            {new Date(s.start_time).toLocaleDateString()}
-                          </p>
-                          <p className="text-xs text-slate-500 mt-0.5">
-                            {new Date(s.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </p>
+                        <div style={{textAlign:'right',flexShrink:0}}>
+                          <div style={{fontSize:13,fontWeight:600,color:'#1d4ed8'}}>{new Date(s.start_time).toLocaleDateString('en-IN',{day:'numeric',month:'short'})}</div>
+                          <div style={{fontSize:11,color:'#9ca3af',marginTop:2}}>{new Date(s.start_time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>
                         </div>
                       </div>
                     ))}
@@ -510,74 +441,86 @@ export default function App() {
 
           {/* ── SETTINGS ── */}
           {view === 'settings' && (
-            <div className="flex-1 p-6 overflow-y-auto">
-              <div className="max-w-lg mx-auto space-y-4">
-                <h2 className="text-base font-semibold text-white mb-6">Settings</h2>
+            <div style={{flex:1,padding:24,overflowY:'auto'}}>
+              <div style={{maxWidth:480,margin:'0 auto',display:'flex',flexDirection:'column',gap:16}}>
+                <h2 style={{fontSize:16,fontWeight:700,color:'#1a1d23',marginBottom:4}}>Settings</h2>
 
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Profile & Working Hours</p>
+                {/* Profile */}
+                <div style={{background:'#fff',border:'1px solid #e8eaed',borderRadius:12,padding:20,display:'flex',flexDirection:'column',gap:14}}>
+                  <div style={{fontSize:10,fontWeight:700,color:'#9ca3af',textTransform:'uppercase',letterSpacing:'0.06em'}}>Profile & Working Hours</div>
                   <div>
-                    <label className="text-xs font-medium text-slate-400 block mb-1.5">Your Name</label>
-                    <input type="text" value={settingsForm.name}
-                      onChange={e => setSettingsForm({ ...settingsForm, name: e.target.value })}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-violet-500 transition-colors"
-                      placeholder="Your name" />
+                    <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'block',marginBottom:6}}>Your Name</label>
+                    <input type="text" value={settingsForm.name} onChange={e => setSettingsForm({...settingsForm, name: e.target.value})}
+                      style={{width:'100%',background:'#f8f9fb',border:'1px solid #e8eaed',borderRadius:8,padding:'9px 12px',fontSize:13,color:'#1a1d23',outline:'none',boxSizing:'border-box',fontFamily:'inherit'}}
+                      onFocus={e=>(e.currentTarget.style.border='1px solid #1d4ed8')}
+                      onBlur={e=>(e.currentTarget.style.border='1px solid #e8eaed')}
+                      placeholder="Enter your name" />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs font-medium text-slate-400 block mb-1.5">Work Start</label>
-                      <input type="time" value={settingsForm.start}
-                        onChange={e => setSettingsForm({ ...settingsForm, start: e.target.value })}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors" />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-slate-400 block mb-1.5">Work End</label>
-                      <input type="time" value={settingsForm.end}
-                        onChange={e => setSettingsForm({ ...settingsForm, end: e.target.value })}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors" />
-                    </div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+                    {[['Work Start','start'],['Work End','end']].map(([label, key]) => (
+                      <div key={key}>
+                        <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'block',marginBottom:6}}>{label}</label>
+                        <input type="time" value={settingsForm[key as keyof Settings]}
+                          onChange={e => setSettingsForm({...settingsForm, [key]: e.target.value})}
+                          style={{width:'100%',background:'#f8f9fb',border:'1px solid #e8eaed',borderRadius:8,padding:'9px 12px',fontSize:13,color:'#1a1d23',outline:'none',boxSizing:'border-box',fontFamily:'inherit'}}
+                          onFocus={e=>(e.currentTarget.style.border='1px solid #1d4ed8')}
+                          onBlur={e=>(e.currentTarget.style.border='1px solid #e8eaed')} />
+                      </div>
+                    ))}
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-slate-400 block mb-1.5">Timezone</label>
-                    <select value={settingsForm.timezone}
-                      onChange={e => setSettingsForm({ ...settingsForm, timezone: e.target.value })}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors">
+                    <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'block',marginBottom:6}}>Timezone</label>
+                    <select value={settingsForm.timezone} onChange={e => setSettingsForm({...settingsForm, timezone: e.target.value})}
+                      style={{width:'100%',background:'#f8f9fb',border:'1px solid #e8eaed',borderRadius:8,padding:'9px 12px',fontSize:13,color:'#1a1d23',outline:'none',boxSizing:'border-box',fontFamily:'inherit'}}>
                       <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
                       <option value="America/New_York">America/New_York (EST)</option>
                       <option value="Europe/London">Europe/London (GMT)</option>
                       <option value="Asia/Singapore">Asia/Singapore (SGT)</option>
                     </select>
                   </div>
-                  <button onClick={handleSaveSettings}
-                    className="w-full bg-violet-600 hover:bg-violet-500 text-white py-2.5 rounded-xl font-medium text-sm transition-all">
-                    Save Settings
+                  <button onClick={handleSave}
+                    style={{background:'#1d4ed8',color:'#fff',border:'none',borderRadius:8,padding:'10px 16px',fontSize:13,fontWeight:600,cursor:'pointer',transition:'background 0.15s'}}
+                    onMouseEnter={e=>(e.currentTarget.style.background='#1e40af')}
+                    onMouseLeave={e=>(e.currentTarget.style.background='#1d4ed8')}>
+                    Save Changes
                   </button>
                 </div>
 
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Connections</p>
-                  <div className="space-y-3 mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
-                      <p className="text-sm text-slate-300">Gmail connected via OAuth</p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
-                      <p className="text-sm text-slate-300">Google Calendar connected</p>
-                    </div>
+                {/* Connections */}
+                <div style={{background:'#fff',border:'1px solid #e8eaed',borderRadius:12,padding:20}}>
+                  <div style={{fontSize:10,fontWeight:700,color:'#9ca3af',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:14}}>Integrations</div>
+                  <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:14}}>
+                    {[['Gmail','OAuth 2.0 · Connected'],['Google Calendar','API · Connected']].map(([name, status]) => (
+                      <div key={name} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 12px',background:'#f8f9fb',borderRadius:8,border:'1px solid #e8eaed'}}>
+                        <div>
+                          <div style={{fontSize:13,fontWeight:600,color:'#1a1d23'}}>{name}</div>
+                          <div style={{fontSize:11,color:'#9ca3af',marginTop:1}}>{status}</div>
+                        </div>
+                        <div style={{display:'flex',alignItems:'center',gap:6}}>
+                          <div style={{width:7,height:7,borderRadius:'50%',background:'#059669'}} />
+                          <span style={{fontSize:11,color:'#059669',fontWeight:600}}>Active</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                   <button onClick={handleFetchGmail} disabled={fetching}
-                    className="w-full bg-sky-700 hover:bg-sky-600 disabled:opacity-40 text-white py-2.5 rounded-xl font-medium text-sm transition-all">
-                    {fetching ? 'Fetching...' : '📬 Fetch Latest Emails from Gmail'}
+                    style={{width:'100%',background:'#0284c7',color:'#fff',border:'none',borderRadius:8,padding:'10px 16px',fontSize:13,fontWeight:600,cursor:'pointer',opacity: fetching ? 0.6 : 1,transition:'background 0.15s'}}
+                    onMouseEnter={e=>{ if(!fetching) e.currentTarget.style.background='#0369a1' }}
+                    onMouseLeave={e=>{ if(!fetching) e.currentTarget.style.background='#0284c7' }}>
+                    {fetching ? 'Syncing...' : 'Sync Latest Emails from Gmail'}
                   </button>
                 </div>
 
-                <div className="bg-slate-900 border border-rose-900/40 rounded-2xl p-5">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Demo Controls</p>
+                {/* Danger */}
+                <div style={{background:'#fff',border:'1px solid #fecaca',borderRadius:12,padding:20}}>
+                  <div style={{fontSize:10,fontWeight:700,color:'#9ca3af',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:12}}>Danger Zone</div>
                   <button onClick={handleReset}
-                    className="w-full bg-rose-950/60 hover:bg-rose-900/60 border border-rose-800/50 text-rose-400 hover:text-rose-300 py-2.5 rounded-xl font-medium text-sm transition-all">
-                    🗑️ Clear All Data — Fresh Demo Start
+                    style={{width:'100%',background:'#fff',color:'#dc2626',border:'1px solid #fecaca',borderRadius:8,padding:'10px 16px',fontSize:13,fontWeight:600,cursor:'pointer',transition:'all 0.15s'}}
+                    onMouseEnter={e=>{ e.currentTarget.style.background='#fef2f2' }}
+                    onMouseLeave={e=>{ e.currentTarget.style.background='#fff' }}>
+                    Clear All Data — Reset for Demo
                   </button>
+                  <div style={{fontSize:11,color:'#9ca3af',marginTop:8,textAlign:'center'}}>This will permanently delete all emails, schedules and replies</div>
                 </div>
               </div>
             </div>

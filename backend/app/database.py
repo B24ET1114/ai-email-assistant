@@ -17,6 +17,7 @@ def init_db():
             intent TEXT,
             priority TEXT DEFAULT 'medium',
             status TEXT DEFAULT 'pending',
+            is_read INTEGER DEFAULT 0,
             received_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
