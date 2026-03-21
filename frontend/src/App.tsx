@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 
 const API = 'http://localhost:8000'
@@ -41,6 +41,23 @@ interface Analytics {
   response_rate: number
 }
 
+const priorityConfig: Record<string, { bg: string; text: string; dot: string }> = {
+  high:   { bg: 'bg-red-50',    text: 'text-red-600',    dot: 'bg-red-500' },
+  medium: { bg: 'bg-amber-50',  text: 'text-amber-600',  dot: 'bg-amber-400' },
+  low:    { bg: 'bg-emerald-50',text: 'text-emerald-600',dot: 'bg-emerald-400' },
+}
+
+const intentConfig: Record<string, { icon: string; label: string; color: string }> = {
+  meeting_request: { icon: '⬡', label: 'Meeting',   color: 'text-violet-500' },
+  follow_up:       { icon: '↻', label: 'Follow-up', color: 'text-sky-500' },
+  conflict:        { icon: '⚠', label: 'Conflict',  color: 'text-rose-500' },
+  general:         { icon: '◎', label: 'General',   color: 'text-slate-400' },
+}
+
+function Dot({ color }: { color: string }) {
+  return <span className={`inline-block w-2 h-2 rounded-full ${color} mr-1.5`} />
+}
+
 export default function App() {
   const [emails, setEmails] = useState<Email[]>([])
   const [schedules, setSchedules] = useState<Schedule[]>([])
@@ -50,489 +67,436 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [fetching, setFetching] = useState(false)
   const [view, setView] = useState<'inbox' | 'schedule' | 'settings'>('inbox')
-  const [notification, setNotification] = useState('')
-  const [notifType, setNotifType] = useState<'success' | 'error' | 'warning'>('success')
-  const [settings, setSettings] = useState<Settings>({
-    start: '09:00', end: '18:00', timezone: 'Asia/Kolkata', name: 'User'
-  })
-  const [settingsForm, setSettingsForm] = useState<Settings>({
-    start: '09:00', end: '18:00', timezone: 'Asia/Kolkata', name: 'User'
-  })
-  const [analytics, setAnalytics] = useState<Analytics>({
-    total_emails: 0, replied: 0, pending: 0,
-    high_priority: 0, meetings_scheduled: 0, response_rate: 0
-  })
+  const [toast, setToast] = useState<{ msg: string; type: 'ok' | 'err' | 'warn' } | null>(null)
+  const [settings, setSettings] = useState<Settings>({ start: '09:00', end: '18:00', timezone: 'Asia/Kolkata', name: 'User' })
+  const [settingsForm, setSettingsForm] = useState<Settings>({ start: '09:00', end: '18:00', timezone: 'Asia/Kolkata', name: 'User' })
+  const [analytics, setAnalytics] = useState<Analytics>({ total_emails: 0, replied: 0, pending: 0, high_priority: 0, meetings_scheduled: 0, response_rate: 0 })
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    fetchEmails()
-    fetchSchedules()
-    fetchSettings()
-    fetchAnalytics()
-    const interval = setInterval(() => {
-      fetchEmails()
-      fetchSchedules()
-      fetchAnalytics()
-    }, 5000)
-    return () => clearInterval(interval)
+    fetchAll()
+    const iv = setInterval(fetchAll, 5000)
+    return () => clearInterval(iv)
   }, [])
 
+  const fetchAll = () => {
+    fetchEmails(); fetchSchedules(); fetchAnalytics()
+  }
+
   const fetchEmails = async () => {
-    try {
-      const res = await axios.get(`${API}/emails/priority`)
-      setEmails(res.data)
-    } catch {}
+    try { const r = await axios.get(`${API}/emails/priority`); setEmails(r.data) } catch {}
   }
-
   const fetchSchedules = async () => {
-    try {
-      const res = await axios.get(`${API}/schedule`)
-      setSchedules(res.data)
-    } catch {}
+    try { const r = await axios.get(`${API}/schedule`); setSchedules(r.data) } catch {}
   }
-
   const fetchSettings = async () => {
-    try {
-      const res = await axios.get(`${API}/settings/working-hours`)
-      setSettings(res.data)
-      setSettingsForm(res.data)
-    } catch {}
+    try { const r = await axios.get(`${API}/settings/working-hours`); setSettings(r.data); setSettingsForm(r.data) } catch {}
   }
-
   const fetchAnalytics = async () => {
-    try {
-      const res = await axios.get(`${API}/analytics`)
-      setAnalytics(res.data)
-    } catch {}
+    try { const r = await axios.get(`${API}/analytics`); setAnalytics(r.data) } catch {}
   }
 
-  const showNotification = (msg: string, type: 'success' | 'error' | 'warning' = 'success') => {
-    setNotification(msg)
-    setNotifType(type)
-    setTimeout(() => setNotification(''), 6000)
+  const notify = (msg: string, type: 'ok' | 'err' | 'warn' = 'ok') => {
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    setToast({ msg, type })
+    toastTimer.current = setTimeout(() => setToast(null), 5000)
   }
+
+  useEffect(() => { fetchSettings() }, [])
 
   const handleReply = async () => {
     if (!selected || !userInput) return
     setLoading(true)
     try {
-      const res = await axios.post(`${API}/emails/reply`, {
-        email_id: selected.id,
-        user_input: userInput
-      })
-      setAiReply(res.data.reply)
-      showNotification('Reply sent successfully!')
-      fetchEmails()
-      fetchAnalytics()
-    } catch {
-      showNotification('Error sending reply', 'error')
-    }
+      const r = await axios.post(`${API}/emails/reply`, { email_id: selected.id, user_input: userInput })
+      setAiReply(r.data.reply); notify('Reply sent!'); fetchEmails(); fetchAnalytics()
+    } catch { notify('Failed to send reply', 'err') }
     setLoading(false)
   }
 
   const handleSchedule = async () => {
     if (!selected) return
     const timeSlot = selected.body.match(/\d{1,2}(am|pm|:\d{2})/i)?.[0] || 'tomorrow 3pm'
-    const conflictRes = await axios.post(
-      `${API}/schedule/check?time_str=${encodeURIComponent(timeSlot)}`
-    )
-    if (conflictRes.data.conflict) {
-      showNotification('⚠️ Conflict detected! Auto-declining...', 'warning')
-      await axios.post(`${API}/emails/reply`, {
-        email_id: selected.id,
-        user_input: 'decline politely due to scheduling conflict, ask them to suggest another time'
-      })
+    const cr = await axios.post(`${API}/schedule/check?time_str=${encodeURIComponent(timeSlot)}`)
+    if (cr.data.conflict) {
+      notify('Conflict! Auto-declining...', 'warn')
+      await axios.post(`${API}/emails/reply`, { email_id: selected.id, user_input: 'decline politely due to scheduling conflict, suggest another time' })
       fetchEmails()
     } else {
-      await axios.post(`${API}/schedule/save`, {
-        email_id: selected.id,
-        title: selected.subject,
-        start_time: timeSlot,
-        attendees: selected.sender
-      })
-      showNotification('Meeting scheduled + Google Calendar event created!')
-      fetchSchedules()
-      fetchAnalytics()
+      await axios.post(`${API}/schedule/save`, { email_id: selected.id, title: selected.subject, start_time: timeSlot, attendees: selected.sender })
+      notify('Meeting scheduled + Calendar event created!'); fetchSchedules(); fetchAnalytics()
     }
   }
 
   const handleSimulate = async () => {
-    await axios.post(`${API}/emails/simulate`)
-    fetchEmails()
-    fetchAnalytics()
-    showNotification('New simulated email received!')
+    await axios.post(`${API}/emails/simulate`); fetchEmails(); fetchAnalytics(); notify('New email arrived!')
   }
 
   const handleFetchGmail = async () => {
     setFetching(true)
     try {
-      const res = await axios.get(`${API}/gmail/fetch`)
-      fetchEmails()
-      fetchAnalytics()
-      showNotification(`Fetched ${res.data.fetched} real emails from Gmail!`)
-    } catch {
-      showNotification('Error fetching Gmail', 'error')
-    }
+      const r = await axios.get(`${API}/gmail/fetch`); fetchEmails(); fetchAnalytics()
+      notify(`Fetched ${r.data.fetched} emails from Gmail`)
+    } catch { notify('Gmail fetch failed', 'err') }
     setFetching(false)
   }
 
   const handleThreadSummary = async () => {
     if (!selected) return
     try {
-      const res = await axios.get(`${API}/emails/thread/${encodeURIComponent(selected.sender)}`)
-      showNotification(`Thread (${res.data.email_count} emails): ${res.data.summary}`)
-    } catch {
-      showNotification('No thread found for this sender', 'error')
-    }
+      const r = await axios.get(`${API}/emails/thread/${encodeURIComponent(selected.sender)}`)
+      notify(`Thread (${r.data.email_count}): ${r.data.summary}`)
+    } catch { notify('No thread found', 'err') }
   }
 
   const handleSaveSettings = async () => {
-    try {
-      await axios.post(`${API}/settings/working-hours`, settingsForm)
-      setSettings(settingsForm)
-      showNotification('Settings saved!')
-    } catch {
-      showNotification('Error saving settings', 'error')
-    }
+    try { await axios.post(`${API}/settings/working-hours`, settingsForm); setSettings(settingsForm); notify('Settings saved!') }
+    catch { notify('Save failed', 'err') }
   }
 
   const handleReset = async () => {
-    if (!confirm('Clear all emails and schedules for fresh demo?')) return
-    await axios.delete(`${API}/reset`)
-    fetchEmails()
-    fetchSchedules()
-    fetchAnalytics()
-    setSelected(null)
-    showNotification('Database cleared - ready for demo!')
+    if (!confirm('Clear all data for a fresh demo?')) return
+    await axios.delete(`${API}/reset`); fetchAll(); setSelected(null); notify('Cleared — ready for demo!')
   }
 
-  const priorityColor = (p: string) => {
-    if (p === 'high') return 'bg-red-100 text-red-800'
-    if (p === 'medium') return 'bg-yellow-100 text-yellow-800'
-    return 'bg-green-100 text-green-800'
-  }
-
-  const intentIcon = (i: string) => {
-    if (i === 'meeting_request') return '📅'
-    if (i === 'follow_up') return '🔄'
-    if (i === 'conflict') return '⚠️'
-    return '📧'
-  }
-
-  const notifBg = notifType === 'error' ? 'bg-red-600' : notifType === 'warning' ? 'bg-amber-500' : 'bg-green-600'
   const highCount = emails.filter(e => e.priority === 'high' && e.status === 'pending').length
 
+  const toastColors = { ok: 'bg-emerald-600', err: 'bg-rose-600', warn: 'bg-amber-500' }
+
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {notification && (
-        <div className={`fixed top-4 right-4 ${notifBg} text-white px-6 py-3 rounded-xl shadow-lg z-50 text-sm font-medium max-w-sm`}>
-          {notification}
+    <div style={{ fontFamily: "'DM Sans', 'Segoe UI', sans-serif" }} className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed top-5 right-5 z-50 ${toastColors[toast.type]} text-white text-sm font-medium px-5 py-3 rounded-2xl shadow-2xl max-w-xs border border-white/10`}>
+          {toast.msg}
         </div>
       )}
 
-      {/* Header */}
-      <div className="bg-indigo-600 text-white px-6 py-4 flex justify-between items-center shadow-md">
-        <div>
-          <h1 className="text-xl font-bold">AI Email Assistant</h1>
-          <p className="text-indigo-200 text-xs">
-            Hi {settings.name} &nbsp;|&nbsp; {settings.start} – {settings.end} &nbsp;|&nbsp; {settings.timezone} &nbsp;|&nbsp; Auto-sync every 1 min
-          </p>
-        </div>
-        <div className="flex gap-2 items-center flex-wrap justify-end">
-          <button onClick={() => setView('inbox')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${view === 'inbox' ? 'bg-white text-indigo-600' : 'text-white hover:bg-indigo-500'}`}>
-            Inbox ({emails.length})
-            {highCount > 0 && <span className="ml-1 bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5">{highCount}</span>}
-          </button>
-          <button onClick={() => setView('schedule')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${view === 'schedule' ? 'bg-white text-indigo-600' : 'text-white hover:bg-indigo-500'}`}>
-            Schedule ({schedules.length})
-          </button>
-          <button onClick={() => setView('settings')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${view === 'settings' ? 'bg-white text-indigo-600' : 'text-white hover:bg-indigo-500'}`}>
-            ⚙️ Settings
-          </button>
-          <button onClick={handleFetchGmail} disabled={fetching}
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-500 text-white hover:bg-blue-400 disabled:opacity-50 transition-colors">
-            {fetching ? 'Fetching...' : '📬 Fetch Gmail'}
-          </button>
-          <button onClick={handleSimulate}
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-green-500 text-white hover:bg-green-400 transition-colors">
-            + Simulate
-          </button>
-        </div>
-      </div>
+      {/* Sidebar + Main layout */}
+      <div className="flex flex-1 overflow-hidden">
 
-      {/* Settings View */}
-      {view === 'settings' && (
-        <div className="flex-1 p-8 max-w-lg mx-auto w-full">
-          <h2 className="text-lg font-bold text-gray-900 mb-6">Settings</h2>
-          <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
+        {/* Left Sidebar Navigation */}
+        <div className="w-16 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-6 gap-4 flex-shrink-0">
+          <div className="w-9 h-9 rounded-xl bg-violet-600 flex items-center justify-center text-white font-bold text-lg mb-4">A</div>
+
+          {[
+            { id: 'inbox', icon: '◫', label: 'Inbox' },
+            { id: 'schedule', icon: '⬡', label: 'Schedule' },
+            { id: 'settings', icon: '⊙', label: 'Settings' },
+          ].map(tab => (
+            <button key={tab.id} onClick={() => setView(tab.id as typeof view)}
+              title={tab.label}
+              className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg transition-all
+                ${view === tab.id ? 'bg-violet-600 text-white shadow-lg shadow-violet-900/50' : 'text-slate-500 hover:bg-slate-800 hover:text-slate-300'}`}>
+              {tab.icon}
+              {tab.id === 'inbox' && highCount > 0 && (
+                <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full" />
+              )}
+            </button>
+          ))}
+
+          <div className="flex-1" />
+
+          <button onClick={handleSimulate} title="Simulate Email"
+            className="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center text-lg transition-all">
+            +
+          </button>
+          <button onClick={handleFetchGmail} disabled={fetching} title="Fetch Gmail"
+            className="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center text-lg transition-all disabled:opacity-40">
+            {fetching ? '…' : '⇩'}
+          </button>
+        </div>
+
+        {/* Main Content */}
+        <div className="flex flex-1 overflow-hidden flex-col">
+
+          {/* Top bar */}
+          <div className="bg-slate-900 border-b border-slate-800 px-6 py-3 flex items-center justify-between flex-shrink-0">
             <div>
-              <label className="text-sm font-medium text-gray-700 block mb-1">Your Name</label>
-              <input type="text" value={settingsForm.name}
-                onChange={e => setSettingsForm({...settingsForm, name: e.target.value})}
-                className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                placeholder="Enter your name" />
+              <h1 className="text-base font-semibold text-white tracking-tight">AI Email Assistant</h1>
+              <p className="text-xs text-slate-500">Hi {settings.name} · {settings.start}–{settings.end} · {settings.timezone} · auto-sync 1 min</p>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">Work Start</label>
-                <input type="time" value={settingsForm.start}
-                  onChange={e => setSettingsForm({...settingsForm, start: e.target.value})}
-                  className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">Work End</label>
-                <input type="time" value={settingsForm.end}
-                  onChange={e => setSettingsForm({...settingsForm, end: e.target.value})}
-                  className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-              </div>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-700 block mb-1">Timezone</label>
-              <select value={settingsForm.timezone}
-                onChange={e => setSettingsForm({...settingsForm, timezone: e.target.value})}
-                className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
-                <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
-                <option value="America/New_York">America/New_York (EST)</option>
-                <option value="Europe/London">Europe/London (GMT)</option>
-                <option value="Asia/Singapore">Asia/Singapore (SGT)</option>
-              </select>
-            </div>
-            <button onClick={handleSaveSettings}
-              className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition-colors">
-              Save Settings
-            </button>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm p-6 mt-4">
-            <h3 className="font-bold text-gray-900 mb-3">Connections</h3>
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-700">Gmail connected via OAuth</p>
-            </div>
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>
-              <p className="text-sm text-gray-700">Google Calendar connected</p>
-            </div>
-            <button onClick={handleFetchGmail} disabled={fetching}
-              className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors">
-              {fetching ? 'Fetching...' : '📬 Fetch Latest Emails from Gmail'}
-            </button>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm p-6 mt-4">
-            <h3 className="font-bold text-gray-900 mb-3">Demo Controls</h3>
-            <button onClick={handleReset}
-              className="w-full bg-red-600 text-white py-2.5 rounded-lg font-medium hover:bg-red-700 transition-colors">
-              🗑️ Clear All Data (Fresh Demo Start)
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Schedule View */}
-      {view === 'schedule' && (
-        <div className="flex-1 p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-bold text-gray-900">Upcoming Meetings</h2>
-            <span className="text-xs bg-green-100 text-green-700 px-3 py-1 rounded-full font-medium">
-              Synced with Google Calendar
-            </span>
-          </div>
-          {schedules.length === 0 ? (
-            <div className="text-center py-16 text-gray-400">
-              <p className="text-5xl mb-3">📅</p>
-              <p>No meetings scheduled yet</p>
-              <p className="text-xs mt-2">Schedule a meeting from an email to see it here</p>
-            </div>
-          ) : (
-            <div className="grid gap-3 max-w-2xl">
-              {schedules.map(s => (
-                <div key={s.id} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="font-semibold text-gray-900">{s.event_title}</h3>
-                      <p className="text-sm text-gray-500 mt-1">With: {s.attendees}</p>
-                      {s.calendar_event_id && (
-                        <span className="text-xs text-green-600 font-medium mt-1 inline-block">
-                          ✓ Google Calendar event created
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-medium text-indigo-600">
-                        {new Date(s.start_time).toLocaleDateString()}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {new Date(s.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                      </p>
-                    </div>
-                  </div>
+            {/* Analytics Pills */}
+            <div className="flex gap-3">
+              {[
+                { label: 'Total',     value: analytics.total_emails,     color: 'text-slate-300' },
+                { label: 'Replied',   value: analytics.replied,           color: 'text-emerald-400' },
+                { label: 'Pending',   value: analytics.pending,           color: 'text-amber-400' },
+                { label: '🔴 High',   value: analytics.high_priority,     color: 'text-rose-400' },
+                { label: 'Rate',      value: `${analytics.response_rate}%`, color: 'text-violet-400' },
+              ].map(stat => (
+                <div key={stat.label} className="text-center px-3 py-1.5 bg-slate-800 rounded-xl border border-slate-700">
+                  <p className={`text-sm font-bold ${stat.color}`}>{stat.value}</p>
+                  <p className="text-xs text-slate-500">{stat.label}</p>
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* INBOX VIEW */}
+          {view === 'inbox' && (
+            <div className="flex flex-1 overflow-hidden">
+              {/* Email List */}
+              <div className="w-80 flex-shrink-0 bg-slate-900 border-r border-slate-800 overflow-y-auto">
+                {highCount > 0 && (
+                  <div className="mx-3 mt-3 mb-1 px-3 py-2 bg-rose-950/60 border border-rose-800/50 rounded-xl">
+                    <p className="text-xs text-rose-400 font-medium">⚠ {highCount} high priority need attention</p>
+                  </div>
+                )}
+                {emails.length === 0 && (
+                  <div className="flex flex-col items-center justify-center h-64 text-slate-600">
+                    <p className="text-4xl mb-3">◫</p>
+                    <p className="text-sm">No emails yet</p>
+                    <p className="text-xs mt-1">Press + or ⇩ above</p>
+                  </div>
+                )}
+                {emails.map(email => {
+                  const pc = priorityConfig[email.priority] || priorityConfig.low
+                  const ic = intentConfig[email.intent] || intentConfig.general
+                  const isSelected = selected?.id === email.id
+                  return (
+                    <div key={email.id}
+                      onClick={() => { setSelected(email); setAiReply(''); setUserInput('') }}
+                      className={`mx-2 my-1 p-3 rounded-xl cursor-pointer transition-all border
+                        ${isSelected
+                          ? 'bg-violet-600/20 border-violet-500/40'
+                          : 'bg-slate-800/50 border-slate-700/40 hover:bg-slate-800 hover:border-slate-600'
+                        }`}>
+                      <div className="flex justify-between items-start mb-1.5">
+                        <span className="text-xs font-semibold text-slate-300 truncate max-w-[140px]">{email.sender.split('<')[0].trim()}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${pc.bg} ${pc.text}`}>
+                          <Dot color={pc.dot} />{email.priority}
+                        </span>
+                      </div>
+                      <p className="text-xs text-white font-medium truncate mb-1">{email.subject}</p>
+                      <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">{email.summary}</p>
+                      <div className="flex justify-between items-center mt-2">
+                        <span className={`text-xs font-medium ${ic.color}`}>{ic.icon} {ic.label}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${email.status === 'replied' ? 'bg-emerald-900/50 text-emerald-400' : 'bg-slate-700 text-slate-400'}`}>
+                          {email.status}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Email Detail */}
+              <div className="flex-1 overflow-y-auto bg-slate-950">
+                {!selected ? (
+                  <div className="flex flex-col items-center justify-center h-full text-slate-700">
+                    <p className="text-6xl mb-4">◫</p>
+                    <p className="text-lg font-medium">Select an email</p>
+                    <p className="text-sm mt-1">or press + to simulate one</p>
+                  </div>
+                ) : (
+                  <div className="max-w-2xl mx-auto p-6 space-y-4">
+
+                    {/* Email Header Card */}
+                    <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5">
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="flex-1 mr-4">
+                          <h2 className="text-lg font-semibold text-white mb-1">{selected.subject}</h2>
+                          <p className="text-sm text-slate-400">From: {selected.sender}</p>
+                        </div>
+                        <div className="flex gap-2 flex-shrink-0">
+                          {(() => {
+                            const pc = priorityConfig[selected.priority] || priorityConfig.low
+                            const ic = intentConfig[selected.intent] || intentConfig.general
+                            return <>
+                              <span className={`text-xs px-3 py-1.5 rounded-xl font-medium ${pc.bg} ${pc.text} border border-current/20`}>
+                                {selected.priority}
+                              </span>
+                              <span className={`text-xs px-3 py-1.5 rounded-xl font-medium bg-slate-800 ${ic.color} border border-slate-700`}>
+                                {ic.icon} {ic.label}
+                              </span>
+                            </>
+                          })()}
+                        </div>
+                      </div>
+
+                      {/* AI Summary */}
+                      <div className="bg-violet-950/40 border border-violet-800/30 rounded-xl p-4 mb-4">
+                        <div className="flex justify-between items-center mb-2">
+                          <p className="text-xs font-semibold text-violet-400 uppercase tracking-wider">AI Summary</p>
+                          <button onClick={handleThreadSummary}
+                            className="text-xs text-violet-400 hover:text-violet-300 underline underline-offset-2">
+                            View thread
+                          </button>
+                        </div>
+                        <p className="text-sm text-slate-300 leading-relaxed">{selected.summary}</p>
+                      </div>
+
+                      {/* Original Email */}
+                      <div>
+                        <p className="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">Original</p>
+                        <p className="text-sm text-slate-400 leading-relaxed whitespace-pre-wrap">{selected.body}</p>
+                      </div>
+                    </div>
+
+                    {/* Schedule Button */}
+                    {selected.intent === 'meeting_request' && (
+                      <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5">
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Quick Action</p>
+                        <button onClick={handleSchedule}
+                          className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl font-medium transition-all text-sm">
+                          ⬡ Check Conflicts & Schedule Meeting
+                        </button>
+                        <p className="text-xs text-slate-600 text-center mt-2">Creates Google Calendar event automatically</p>
+                      </div>
+                    )}
+
+                    {/* Reply Section */}
+                    <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Your Response</p>
+                      <div className="flex gap-2 mb-3 flex-wrap">
+                        {['Yes, confirmed!', 'No, not available', 'Reschedule please', 'Need more info'].map(q => (
+                          <button key={q} onClick={() => setUserInput(q)}
+                            className={`text-xs px-3 py-1.5 rounded-lg transition-all border
+                              ${userInput === q
+                                ? 'bg-violet-600 text-white border-violet-500'
+                                : 'bg-slate-800 text-slate-400 border-slate-700 hover:border-slate-500 hover:text-slate-200'}`}>
+                            {q}
+                          </button>
+                        ))}
+                      </div>
+                      <textarea value={userInput} onChange={e => setUserInput(e.target.value)}
+                        placeholder="Or type a custom instruction..."
+                        className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm text-slate-200 placeholder-slate-600 resize-none focus:outline-none focus:border-violet-500 transition-colors"
+                        rows={3} />
+                      <button onClick={handleReply} disabled={loading || !userInput}
+                        className="mt-3 w-full bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white py-3 rounded-xl font-medium transition-all text-sm">
+                        {loading ? '✍ Writing reply...' : '↑ Generate & Send Reply'}
+                      </button>
+
+                      {aiReply && (
+                        <div className="mt-4 bg-emerald-950/40 border border-emerald-800/30 rounded-xl p-4">
+                          <p className="text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-2">✓ Reply Sent</p>
+                          <p className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">{aiReply}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* SCHEDULE VIEW */}
+          {view === 'schedule' && (
+            <div className="flex-1 p-6 overflow-y-auto">
+              <div className="max-w-2xl mx-auto">
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-lg font-semibold text-white">Upcoming Meetings</h2>
+                  <span className="text-xs bg-emerald-900/40 text-emerald-400 border border-emerald-800/40 px-3 py-1.5 rounded-xl">
+                    ✓ Synced with Google Calendar
+                  </span>
+                </div>
+                {schedules.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-64 text-slate-700">
+                    <p className="text-5xl mb-3">⬡</p>
+                    <p className="text-base">No meetings yet</p>
+                    <p className="text-sm mt-1">Schedule one from an email</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {schedules.map(s => (
+                      <div key={s.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex justify-between items-center hover:border-slate-700 transition-all">
+                        <div>
+                          <h3 className="font-semibold text-white text-sm">{s.event_title}</h3>
+                          <p className="text-xs text-slate-500 mt-0.5">With: {s.attendees}</p>
+                          {s.calendar_event_id && (
+                            <span className="text-xs text-emerald-500 mt-1 inline-block">✓ Google Calendar</span>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-medium text-violet-400">{new Date(s.start_time).toLocaleDateString()}</p>
+                          <p className="text-xs text-slate-500 mt-0.5">{new Date(s.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* SETTINGS VIEW */}
+          {view === 'settings' && (
+            <div className="flex-1 p-6 overflow-y-auto">
+              <div className="max-w-lg mx-auto space-y-4">
+                <h2 className="text-lg font-semibold text-white mb-6">Settings</h2>
+
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Your Name</label>
+                    <input type="text" value={settingsForm.name}
+                      onChange={e => setSettingsForm({ ...settingsForm, name: e.target.value })}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-violet-500 transition-colors"
+                      placeholder="Your name" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Work Start</label>
+                      <input type="time" value={settingsForm.start}
+                        onChange={e => setSettingsForm({ ...settingsForm, start: e.target.value })}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Work End</label>
+                      <input type="time" value={settingsForm.end}
+                        onChange={e => setSettingsForm({ ...settingsForm, end: e.target.value })}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Timezone</label>
+                    <select value={settingsForm.timezone}
+                      onChange={e => setSettingsForm({ ...settingsForm, timezone: e.target.value })}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors">
+                      <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
+                      <option value="America/New_York">America/New_York (EST)</option>
+                      <option value="Europe/London">Europe/London (GMT)</option>
+                      <option value="Asia/Singapore">Asia/Singapore (SGT)</option>
+                    </select>
+                  </div>
+                  <button onClick={handleSaveSettings}
+                    className="w-full bg-violet-600 hover:bg-violet-500 text-white py-2.5 rounded-xl font-medium text-sm transition-all">
+                    Save Settings
+                  </button>
+                </div>
+
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Connections</p>
+                  <div className="space-y-3 mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                      <p className="text-sm text-slate-300">Gmail connected via OAuth</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                      <p className="text-sm text-slate-300">Google Calendar connected</p>
+                    </div>
+                  </div>
+                  <button onClick={handleFetchGmail} disabled={fetching}
+                    className="w-full bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white py-2.5 rounded-xl font-medium text-sm transition-all">
+                    {fetching ? 'Fetching...' : '⇩ Fetch Latest from Gmail'}
+                  </button>
+                </div>
+
+                <div className="bg-slate-900 border border-rose-900/50 rounded-2xl p-5">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Demo Controls</p>
+                  <button onClick={handleReset}
+                    className="w-full bg-rose-900/50 hover:bg-rose-800/60 border border-rose-800/50 text-rose-400 py-2.5 rounded-xl font-medium text-sm transition-all">
+                    ⊘ Clear All Data — Fresh Demo Start
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>
-      )}
-
-      {/* Inbox View */}
-      {view === 'inbox' && (
-        <div className="flex flex-1 overflow-hidden flex-col">
-
-          {/* Analytics Bar */}
-          <div className="grid grid-cols-5 gap-3 p-4 bg-white border-b border-gray-100 shadow-sm">
-            <div className="text-center">
-              <p className="text-2xl font-bold text-indigo-600">{analytics.total_emails}</p>
-              <p className="text-xs text-gray-500">Total</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-green-600">{analytics.replied}</p>
-              <p className="text-xs text-gray-500">Replied</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-amber-600">{analytics.pending}</p>
-              <p className="text-xs text-gray-500">Pending</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-red-600">{analytics.high_priority}</p>
-              <p className="text-xs text-gray-500">High Priority</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-purple-600">{analytics.response_rate}%</p>
-              <p className="text-xs text-gray-500">Response Rate</p>
-            </div>
-          </div>
-
-          <div className="flex flex-1 overflow-hidden">
-            {/* Sidebar */}
-            <div className="w-1/3 bg-white border-r border-gray-200 overflow-y-auto">
-              {highCount > 0 && (
-                <div className="bg-red-50 border-b border-red-100 px-4 py-2">
-                  <p className="text-xs text-red-600 font-medium">⚠️ {highCount} high priority email{highCount > 1 ? 's' : ''} need attention</p>
-                </div>
-              )}
-              {emails.length === 0 && (
-                <div className="p-8 text-center text-gray-400">
-                  <p className="text-4xl mb-2">📭</p>
-                  <p>No emails yet</p>
-                  <p className="text-xs mt-2">Click "+ Simulate" or "📬 Fetch Gmail"</p>
-                </div>
-              )}
-              {emails.map(email => (
-                <div key={email.id}
-                  onClick={() => { setSelected(email); setAiReply(''); setUserInput('') }}
-                  className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-indigo-50 transition-colors
-                    ${selected?.id === email.id ? 'bg-indigo-50 border-l-4 border-l-indigo-600' : ''}
-                    ${email.priority === 'high' && selected?.id !== email.id ? 'border-l-4 border-l-red-400' : ''}`}>
-                  <div className="flex justify-between items-start mb-1">
-                    <span className="font-medium text-gray-900 text-sm truncate">{email.sender}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${priorityColor(email.priority)}`}>
-                      {email.priority}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1 mb-1">
-                    <span>{intentIcon(email.intent)}</span>
-                    <p className="text-sm text-gray-700 font-medium truncate">{email.subject}</p>
-                  </div>
-                  <p className="text-xs text-gray-500 line-clamp-2">{email.summary}</p>
-                  <span className={`text-xs mt-1 inline-block px-2 py-0.5 rounded-full ${email.status === 'replied' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                    {email.status}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            {/* Main Panel */}
-            <div className="flex-1 flex flex-col overflow-y-auto">
-              {!selected ? (
-                <div className="flex-1 flex items-center justify-center text-gray-400">
-                  <div className="text-center">
-                    <p className="text-6xl mb-4">👆</p>
-                    <p className="text-xl font-medium">Select an email to get started</p>
-                    <p className="text-sm mt-2">or click "+ Simulate" to receive a test email</p>
-                    {highCount > 0 && (
-                      <p className="text-red-500 text-sm mt-3 font-medium">
-                        ⚠️ {highCount} high priority email{highCount > 1 ? 's' : ''} need attention!
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="p-6 space-y-4">
-                  <div className="bg-white rounded-xl shadow-sm p-5">
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <h2 className="text-xl font-bold text-gray-900">{selected.subject}</h2>
-                        <p className="text-gray-500 text-sm mt-0.5">From: {selected.sender}</p>
-                      </div>
-                      <div className="flex gap-2">
-                        <span className={`text-xs px-3 py-1 rounded-full font-medium ${priorityColor(selected.priority)}`}>
-                          {selected.priority} priority
-                        </span>
-                        <span className="text-xs px-3 py-1 rounded-full bg-blue-100 text-blue-800 font-medium">
-                          {selected.intent.replace('_', ' ')}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="bg-indigo-50 rounded-lg p-3 mb-3">
-                      <div className="flex justify-between items-center mb-1">
-                        <p className="text-xs font-semibold text-indigo-600">AI SUMMARY</p>
-                        <button onClick={handleThreadSummary}
-                          className="text-xs text-indigo-500 hover:text-indigo-700 underline">
-                          View full thread
-                        </button>
-                      </div>
-                      <p className="text-gray-700 text-sm">{selected.summary}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-gray-500 mb-1">ORIGINAL EMAIL</p>
-                      <p className="text-gray-700 text-sm whitespace-pre-wrap">{selected.body}</p>
-                    </div>
-                  </div>
-
-                  {selected.intent === 'meeting_request' && (
-                    <div className="bg-white rounded-xl shadow-sm p-5">
-                      <h3 className="font-bold text-gray-900 mb-3">Quick Actions</h3>
-                      <button onClick={handleSchedule}
-                        className="w-full bg-green-600 text-white py-2.5 rounded-lg font-medium hover:bg-green-700 transition-colors">
-                        📅 Check Conflicts & Schedule Meeting
-                      </button>
-                      <p className="text-xs text-gray-400 mt-2 text-center">Creates a real Google Calendar event automatically</p>
-                    </div>
-                  )}
-
-                  <div className="bg-white rounded-xl shadow-sm p-5">
-                    <h3 className="font-bold text-gray-900 mb-3">Your Response</h3>
-                    <div className="flex gap-2 mb-3 flex-wrap">
-                      {['Yes, confirmed!', 'No, not available', 'Reschedule please', 'Need more info'].map(q => (
-                        <button key={q} onClick={() => setUserInput(q)}
-                          className="text-xs px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-full hover:bg-indigo-100 transition-colors">
-                          {q}
-                        </button>
-                      ))}
-                    </div>
-                    <textarea value={userInput} onChange={e => setUserInput(e.target.value)}
-                      placeholder="Type yes, no, or any instruction..."
-                      className="w-full border border-gray-200 rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                      rows={3} />
-                    <button onClick={handleReply} disabled={loading || !userInput}
-                      className="mt-3 w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors">
-                      {loading ? '✍️ AI is writing...' : '📨 Generate & Send Reply'}
-                    </button>
-                    {aiReply && (
-                      <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
-                        <p className="text-xs font-semibold text-green-700 mb-2">✅ REPLY SENT</p>
-                        <p className="text-sm text-gray-700 whitespace-pre-wrap">{aiReply}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   )
 }
